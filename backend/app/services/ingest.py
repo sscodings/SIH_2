@@ -49,8 +49,8 @@ class IngestionService:
                 raise IngestionValidationError(f"Invalid cryptocurrency address '{w}': {det.get('error')}")
 
         if not complaint_number:
-            c_count = db.query(Complaint).count() + 1001
-            complaint_number = f"{source}-2026-{c_count:06d}"
+            from app.db.models import get_next_sequence_number
+            complaint_number = get_next_sequence_number(db, "complaint", source)
 
         detection = IngestionService.detect_chain_and_validate(reported_wallets[0])
         chain = detection.get("chain", "tron")

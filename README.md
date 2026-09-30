@@ -22,6 +22,14 @@ ChainNetra ("Netra" = Eye) is an automated blockchain forensics command room tai
 ## ⚡ Key Capabilities
 
 - **Automated Multi-Chain First-VASP-Hit Tracing**: Priority-queue graph traversal keyed by `(chain, address)` composite nodes across Tron, Bitcoin, Ethereum, BSC, Polygon, and Arbitrum with multi-root EVM expansion.
+- **Asynchronous Task Processing with `arq` & Redis**: Case tracing jobs execute asynchronously via `arq` worker queue with exponential backoff retries, stuck-job sweepers, and live WebSocket progress streams.
+- **Rigorous Multi-Chain Address Validation**: Cryptographic checksum validation across Tron Base58Check (`0x41`), Bitcoin (Base58Check & Bech32/Bech32m), and EVM EIP-55 with chain hint override audits.
+- **Automated Threat Intelligence Ingestion**: Streamed ingestion of OFAC SDN sanctions lists, FIU-IND registered VASP directories, and verified exchange reserve addresses with conflict-weighted tiering.
+- **Contract-First Complaint Ingestion Pipeline**: Ingests victim complaints via Mock NCRP connector, folder drop watcher (`/data/drop`), and HMAC-SHA256 authenticated REST endpoints with timestamp skew protection.
+- **Relational Cross-Complaint Linking & Deduplication**: High-speed relational indexing via `complaint_wallets` identifying multi-complaint suspect syndicates and raising automated linkage alerts.
+- **Complainant PII Protection at Rest**: Symmetric Fernet encryption of victim contact identifiers (`victim_ref`); unmasked strictly for supervisor and administrator roles.
+- **Background Watchlist Monitor & Alert Lifecycle**: Scheduled watcher tracking monitored wallets for sanctions hits (`Critical`), mixer interactions (`High`), VASP movements (`High`), and new inflows (`Medium`) with deduplication.
+- **Thread-Safe Locked Sequence Counters**: Concurrency-safe sequence counters (`SystemCounter`) replacing count-based race conditions for cases, complaints, and freeze orders.
 - **Stateful Per-Wallet Taint Propagation**: Chronologically replayed wallet ledgers supporting Haircut (proportional allocation), FIFO (first-in first-out lot queues), and Poison (bounded contamination) with mathematical conservation invariants.
 - **Temporally Sound Lookahead Windows**: Strict `since` and `until` bounded traversal anchored to tainted fund arrival timestamps, preventing reverse-chronological false paths.
 - **Generalized Peel-Chain Detection**: Detection of $n$-output peeling chains requiring $\ge 3$ consecutive hops carrying $\ge 80\%$ tainted value.
@@ -45,9 +53,10 @@ ChainNetra ("Netra" = Eye) is an automated blockchain forensics command room tai
 | Layer | Technologies |
 | :--- | :--- |
 | **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Cytoscape.js (`cytoscape-fcose`), Recharts, Framer Motion, Driver.js, Zustand, TanStack Query |
-| **Backend** | Python 3.11+, FastAPI, Uvicorn, SQLAlchemy 2 (WAL mode SQLite, Postgres-ready), NetworkX, Native WebSockets |
+| **Backend** | Python 3.11+, FastAPI, Uvicorn, SQLAlchemy 2 (Postgres / SQLite), Alembic, NetworkX, Native WebSockets |
+| **Queue & Cache** | Redis 7, `arq` Asynchronous Task Queue & Cron Scheduler, In-Memory Token Bucket Rate Limiting |
 | **Intelligence & ML** | Scikit-learn (RandomForest, IsolationForest), NumPy, Pandas, Joblib |
-| **Evidence & Integrity** | ReportLab (A4 PDF), QRCode, SHA-256 Hash Chaining, HMAC-SHA256 Webhooks |
+| **Evidence & Integrity** | ReportLab (A4 PDF), QRCode, SHA-256 Hash Chaining, HMAC-SHA256 Webhooks & REST Ingest |
 
 ---
 

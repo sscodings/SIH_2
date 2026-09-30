@@ -48,8 +48,8 @@ class FreezeService:
             loss_inr = float(victim_loss_inr or 0.0)
             loss_usd = float(victim_loss_usd or 0.0)
 
-        req_count = db.query(FreezeRequest).count() + 1
-        request_number = f"FR-2026-{req_count:04d}"
+        from app.db.models import get_next_sequence_number
+        request_number = get_next_sequence_number(db, "freeze", "FR")
 
         fr = FreezeRequest(
             request_number=request_number,

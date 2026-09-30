@@ -1,6 +1,6 @@
 import datetime
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, Index, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Session
 from app.db.database import Base
 
 class User(Base):
@@ -230,8 +230,13 @@ class TraceJob(Base):
     __tablename__ = "trace_jobs"
     id = Column(String(100), primary_key=True)
     case_id = Column(Integer, ForeignKey("cases.id"), index=True)
-    status = Column(String(50), default="running")  # running, completed, failed, cancelled
+    status = Column(String(50), default="queued")  # queued, running, completed, failed, cancelled
     params = Column(Text, default="{}")  # JSON
+    progress = Column(Float, default=0.0)
+    cancelled = Column(Boolean, default=False)
+    retry_count = Column(Integer, default=0)
+    max_retries = Column(Integer, default=3)
+    error_message = Column(Text, nullable=True)
     started_at = Column(DateTime, default=datetime.datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     elapsed_seconds = Column(Float, default=0.0)
@@ -347,6 +352,7 @@ class Recommendation(Base):
 class Watchlist(Base):
     __tablename__ = "watchlist"
     id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("cases.id"), nullable=True)
     address = Column(String(255), index=True, nullable=False)
     chain = Column(String(50), nullable=False)
     label = Column(String(255), default="")
@@ -356,6 +362,7 @@ class Watchlist(Base):
     alert_on_vasp = Column(Boolean, default=True)
     alert_on_mixer = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
+    last_checked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class Alert(Base):
@@ -369,9 +376,44 @@ class Alert(Base):
     chain = Column(String(50), nullable=True)
     case_id = Column(Integer, nullable=True)
     tx_hash = Column(String(255), nullable=True)
+    evidence_tx_hashes = Column(Text, default="[]")  # JSON list
+    dedup_key = Column(String(255), nullable=True, index=True)
+    status = Column(String(50), default="new")  # new, ack, resolved
     is_acknowledged = Column(Boolean, default=False)
     acknowledged_by = Column(String(255), nullable=True)
+    resolved_by = Column(String(255), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class SystemCounter(Base):
+    __tablename__ = "system_counters"
+    name = Column(String(50), primary_key=True)
+    current_value = Column(Integer, default=1000, nullable=False)
+    prefix = Column(String(20), default="")
+    year = Column(Integer, default=2026)
+
+def get_next_sequence_number(db: Session, counter_name: str, prefix: str = None) -> str:
+    """Thread-safe locked sequence counter for case, complaint, and freeze numbers."""
+    try:
+        counter = db.query(SystemCounter).filter(SystemCounter.name == counter_name).with_for_update().first()
+    except Exception:
+        # SQLite fallback if SELECT FOR UPDATE not supported
+        counter = db.query(SystemCounter).filter(SystemCounter.name == counter_name).first()
+
+    if not counter:
+        counter = SystemCounter(
+            name=counter_name,
+            current_value=1000,
+            prefix=prefix or counter_name.upper(),
+            year=2026
+        )
+        db.add(counter)
+        db.flush()
+
+    counter.current_value += 1
+    val = counter.current_value
+    pref = prefix or counter.prefix or counter_name.upper()
+    return f"{pref}-{counter.year}-{val:06d}"
 
 class FreezeRequest(Base):
     __tablename__ = "freeze_requests"

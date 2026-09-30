@@ -21,3 +21,5 @@ base58>=2.1.1
 bech32>=1.2.0
 arq>=0.25.0
 redis>=5.0.0
+alembic>=1.13.0
+psycopg2-binary>=2.9.9

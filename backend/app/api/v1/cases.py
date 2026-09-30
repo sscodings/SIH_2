@@ -10,7 +10,8 @@ from pydantic import BaseModel
 from app.db.database import get_db
 from app.db.models import (
     Case, CaseComplaint, Complaint, TraceJob, TraceSnapshot,
-    Attribution, FundsStatus, GraphNode, GraphEdge, CaseNote, Cluster, ClusterMember, User
+    Attribution, FundsStatus, GraphNode, GraphEdge, CaseNote, Cluster, ClusterMember, User,
+    get_next_sequence_number
 )
 from app.engines.tracer import TracingEngine
 from app.engines.recommend import RecommendationEngine
@@ -19,6 +20,7 @@ from app.engines.typology import TypologyEngine
 from app.core.audit import log_audit_action
 from app.core.security import require_user
 from app.core.validators import validate_crypto_address
+from app.services.queue import enqueue_trace_job
 
 router = APIRouter(prefix="/cases", tags=["Cases & Tracing"])
 
@@ -102,8 +104,7 @@ def create_case(
             detail=f"Invalid crypto address format for chain '{payload.primary_chain}': '{payload.primary_address}'"
         )
 
-    case_count = db.query(Case).count() + 1
-    case_number = f"CASE-2026-{case_count:04d}"
+    case_number = get_next_sequence_number(db, "case", "CASE")
 
     case = Case(
         case_number=case_number,
@@ -312,14 +313,14 @@ async def start_trace(
     trace_job = TraceJob(
         id=job_id,
         case_id=id,
-        status="running",
+        status="queued",
         params=json.dumps(payload.dict()),
         started_at=datetime.now(timezone.utc)
     )
     db.add(trace_job)
     db.commit()
 
-    background_tasks.add_task(run_trace_task, id, job_id, payload.dict(), current_user.email)
+    await enqueue_trace_job(id, job_id, payload.dict(), current_user.email, background_tasks)
 
     return {
         "status": "started",
@@ -339,6 +340,7 @@ def cancel_trace(
         active_trace_jobs[job_id]["cancelled"] = True
     job_rec = db.query(TraceJob).filter(TraceJob.id == job_id).first()
     if job_rec:
+        job_rec.cancelled = True
         job_rec.status = "cancelled"
         db.commit()
 
