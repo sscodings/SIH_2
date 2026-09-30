@@ -18,7 +18,6 @@ export const Login: React.FC = () => {
     try {
       setLoading(true);
       const res = await api.login(email, password);
-      localStorage.setItem('chainnetra_token', res.access_token);
       setUser(res.user);
       toast.success(`Authenticated as ${res.user.role}!`);
       navigate('/');

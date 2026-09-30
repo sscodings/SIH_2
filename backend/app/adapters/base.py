@@ -2,6 +2,10 @@ from typing import Protocol, List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
+class AdapterError(Exception):
+    """Raised when live blockchain adapter encounters an unrecoverable failure (network, rate limit, timeout, malformed payload, pricing failure)."""
+    pass
+
 class TokenBalance(BaseModel):
     token: str
     symbol: str
@@ -21,6 +25,7 @@ class AddressSummary(BaseModel):
     last_seen: Optional[datetime] = None
     entity_label: Optional[str] = None
     entity_type: Optional[str] = None
+    truncated: bool = False
 
 class Transfer(BaseModel):
     chain: str
@@ -35,6 +40,8 @@ class Transfer(BaseModel):
     is_contract_call: bool = False
     method: Optional[str] = None
     log_index: int = 0
+    multi_input: bool = False
+    truncated: bool = False
 
 class Transaction(BaseModel):
     chain: str
@@ -53,7 +60,7 @@ class ChainAdapter(Protocol):
     async def get_address_summary(self, address: str) -> AddressSummary:
         ...
 
-    async def get_transfers(self, address: str, direction: str = "both", since: Optional[datetime] = None, limit: int = 100) -> List[Transfer]:
+    async def get_transfers(self, address: str, direction: str = "both", since: Optional[datetime] = None, until: Optional[datetime] = None, limit: int = 100) -> List[Transfer]:
         ...
 
     async def get_transaction(self, tx_hash: str) -> Optional[Transaction]:

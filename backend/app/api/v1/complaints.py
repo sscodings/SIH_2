@@ -1,15 +1,15 @@
 import json
-import random
 from typing import List, Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from backend.app.db.database import get_db
-from backend.app.db.models import Complaint
-from backend.app.services.ingest import IngestionService
-from backend.app.core.ws import ws_manager
-from backend.app.core.config import settings
+from app.db.database import get_db
+from app.db.models import Complaint, User
+from app.services.ingest import IngestionService, IngestionValidationError
+from app.core.ws import ws_manager
+from app.core.security import require_user
+from app.core.audit import log_audit_action
 
 router = APIRouter(prefix="", tags=["Complaints"])
 
@@ -23,8 +23,8 @@ class IngestRequest(BaseModel):
 
 @router.get("/complaints")
 def list_complaints(
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     status: Optional[str] = None,
     chain: Optional[str] = None,
     fraud_type: Optional[str] = None,
@@ -85,110 +85,83 @@ def get_complaint(id: int, db: Session = Depends(get_db)):
     }
 
 @router.post("/ingest/ncrp")
-async def ingest_ncrp(payload: IngestRequest, db: Session = Depends(get_db)):
-    complaint = IngestionService.ingest_single_complaint(
-        db=db,
-        victim_name=payload.victim_name,
-        victim_state=payload.victim_state,
-        fraud_type=payload.fraud_type,
-        reported_wallets=payload.reported_wallets,
-        amount_lost_inr=payload.amount_lost_inr,
-        source="NCRP",
-        complaint_number=payload.complaint_number
-    )
+async def ingest_ncrp(
+    payload: IngestRequest,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        complaint = IngestionService.ingest_single_complaint(
+            db=db,
+            victim_name=payload.victim_name,
+            victim_state=payload.victim_state,
+            fraud_type=payload.fraud_type,
+            reported_wallets=payload.reported_wallets,
+            amount_lost_inr=payload.amount_lost_inr,
+            source="NCRP",
+            complaint_number=payload.complaint_number
+        )
+    except IngestionValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     # Broadcast to WebSocket
     await ws_manager.broadcast_event(
-        "inbox",
-        "new_complaint",
-        {
+        topic="inbox",
+        event_type="new_complaint",
+        data={
             "id": complaint.id,
             "complaint_number": complaint.complaint_number,
-            "source": "NCRP",
             "victim_name": complaint.victim_name,
-            "amount_lost_inr": complaint.amount_lost_inr,
-            "chain": complaint.chain
+            "amount_inr": complaint.amount_lost_inr,
+            "chain": complaint.chain,
+            "priority": complaint.priority
         }
     )
-    return {"status": "success", "complaint_id": complaint.id, "complaint_number": complaint.complaint_number}
 
-@router.post("/ingest/sahyog")
-async def ingest_sahyog(payload: IngestRequest, db: Session = Depends(get_db)):
-    complaint = IngestionService.ingest_single_complaint(
+    log_audit_action(
         db=db,
-        victim_name=payload.victim_name,
-        victim_state=payload.victim_state,
-        fraud_type=payload.fraud_type,
-        reported_wallets=payload.reported_wallets,
-        amount_lost_inr=payload.amount_lost_inr,
-        source="SAHYOG",
-        complaint_number=payload.complaint_number
+        user_email=current_user.email,
+        action="INGEST_NCRP_COMPLAINT",
+        entity_type="COMPLAINT",
+        entity_id=str(complaint.id),
+        details={"complaint_number": complaint.complaint_number, "wallets": payload.reported_wallets}
     )
-    await ws_manager.broadcast_event(
-        "inbox",
-        "new_complaint",
-        {
-            "id": complaint.id,
-            "complaint_number": complaint.complaint_number,
-            "source": "SAHYOG",
-            "victim_name": complaint.victim_name,
-            "amount_lost_inr": complaint.amount_lost_inr,
-            "chain": complaint.chain
-        }
-    )
-    return {"status": "success", "complaint_id": complaint.id, "complaint_number": complaint.complaint_number}
+
+    return {"status": "ingested", "complaint_id": complaint.id, "complaint_number": complaint.complaint_number}
 
 @router.post("/ingest/csv")
-async def ingest_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    content = await file.read()
-    text = content.decode("utf-8")
-    result = IngestionService.process_csv_upload(db, text)
-    return result
+async def ingest_csv(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    if not file.filename.lower().endswith(".csv") and file.content_type not in ("text/csv", "application/vnd.ms-excel", "text/plain", "application/octet-stream"):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only .csv files are supported.")
 
-@router.post("/complaints/simulate")
-async def simulate_complaint(db: Session = Depends(get_db)):
-    """
-    Simulates a live incoming cybercrime fraud complaint from NCRP / SAHYOG feed.
-    """
-    states = ["Maharashtra", "Karnataka", "Delhi", "Gujarat", "Telangana", "Uttar Pradesh", "West Bengal", "Punjab"]
-    fraud_types = ["Investment Scam", "Task-Based Fraud", "Sextortion", "Phishing Drainer", "Fake Trading App"]
-    chains = ["tron", "ethereum", "bsc", "bitcoin"]
+    content_bytes = await file.read()
+    if len(content_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds maximum limit of 5MB")
 
-    chain = random.choice(chains)
-    mock_addr = (
-        f"T{random.randint(1000000000, 9999999999)}SimTronAddr" if chain == "tron"
-        else (f"0x{random.randint(1000000000, 9999999999):x}abcdef40hexevm" if chain in ["ethereum", "bsc"]
-        else f"bc1q{random.randint(1000000000, 9999999999)}simbtcaddr")
-    )
-    inr_amt = random.randint(250000, 3500000)
+    try:
+        content_str = content_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            content_str = content_bytes.decode("latin1")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Unable to decode CSV text")
 
-    cmp = IngestionService.ingest_single_complaint(
+    try:
+        result = IngestionService.process_csv_upload(db, content_str)
+    except IngestionValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    log_audit_action(
         db=db,
-        victim_name=f"Simulated Citizen ({random.choice(['Tech Worker', 'Doctor', 'Retired Officer', 'Student', 'Merchant'])})",
-        victim_state=random.choice(states),
-        fraud_type=random.choice(fraud_types),
-        reported_wallets=[mock_addr],
-        amount_lost_inr=inr_amt,
-        source=random.choice(["NCRP", "SAHYOG"])
+        user_email=current_user.email,
+        action="INGEST_CSV_BULK",
+        entity_type="COMPLAINT",
+        entity_id="BULK",
+        details={"valid_rows": result.get("valid_rows"), "total_rows": result.get("total_rows")}
     )
 
-    data = {
-        "id": cmp.id,
-        "complaint_number": cmp.complaint_number,
-        "source": cmp.source,
-        "victim_name": cmp.victim_name,
-        "amount_lost_inr": cmp.amount_lost_inr,
-        "amount_lost_usd": cmp.amount_lost_usd,
-        "chain": cmp.chain,
-        "reported_at": cmp.reported_at.isoformat(),
-        "priority": cmp.priority,
-        "fraud_type": cmp.fraud_type
-    }
-
-    await ws_manager.broadcast_event("inbox", "new_complaint", data)
-
-    return {"status": "simulated", "complaint": data}
-
-@router.post("/complaints/validate-address")
-def validate_address(payload: dict):
-    addr = payload.get("address", "")
-    return IngestionService.detect_chain_and_validate(addr)
+    return result

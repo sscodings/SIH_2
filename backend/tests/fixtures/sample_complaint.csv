@@ -1,0 +1,6 @@
+complaint_id,data_origin,state,category,amount_inr,incident_date,victim_id_masked,suspect_wallet_address,chain,txn_hash,bank_or_exchange_named
+SYN-0001,SYNTHETIC,Maharashtra,Investment fraud,450000,2026-08-12,V****4821,TVssLZco7KSwkQ3NwsuwQPRxUVjXfVwYY2,TRX,c011d7fa1316cb0a05456d60552038873eb5ca79797b1fce9d828ee537b0adca,Unspecified bank (INR)->P2P
+SYN-0002,SYNTHETIC,Karnataka,Task/part-time job scam,120000,2026-08-19,V****0397,0xABa250B6f3334Fa1E5E6B37aEFbBE56507F84797,ETH,0xb8f67880da6c033674c25d1469ab9434a209a39224ceb600766decdb8ae76329,CoinDCX
+SYN-0003,SYNTHETIC,Delhi,Digital arrest,1850000,2026-09-02,V****7710,1AycQxUK1k39gro3gDyRQ3vaHeDgjyD9o3,BTC,2d9f15b5c4d1818c9802d67991a89149c82409c79f13fd3cfc01757cc1e2393e,Unspecified
+SYN-0004,SYNTHETIC,Telangana,Fake trading app,760000,2026-09-09,V****2256,0xd746108C820a9432f370DfFeEaF1B82CA7DD131D,BSC,0xfafe5995e089ba98292e3e6452c8480a9d192c9ab465bd1bfbee539b6dff418c,Binance
+SYN-0005,SYNTHETIC,Gujarat,Romance/pig-butchering,2300000,2026-09-15,V****9034,TUomLVBrroLZiEWKzUMHdiqUrbQ7FvRfdG,TRX,60d02d9e5596b2dcdba45fcd0a672cef9d69b8afff23c9b1c79d112300df83ed,WazirX

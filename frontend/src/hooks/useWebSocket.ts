@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../stores/useAppStore';
+import { getAccessToken } from '../lib/api';
 
-export function useWebSocket(topic: string = 'all', onEvent?: (event: string, data: any) => void) {
+export function useWebSocket(topic: string = 'inbox', onEvent?: (event: string, data: any) => void) {
   const wsRef = useRef<WebSocket | null>(null);
   const setWsConnected = useAppStore((s) => s.setWsConnected);
   const incrementUnreadAlerts = useAppStore((s) => s.incrementUnreadAlerts);
@@ -10,17 +11,27 @@ export function useWebSocket(topic: string = 'all', onEvent?: (event: string, da
 
   useEffect(() => {
     let reconnectTimeout: any;
+    let isMounted = true;
+
     const connect = () => {
       try {
-        const ws = new WebSocket('ws://localhost:8000/ws/events');
+        const token = getAccessToken();
+        const baseWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/events';
+        const urlWithToken = token ? `${baseWsUrl}?token=${encodeURIComponent(token)}` : baseWsUrl;
+
+        const ws = new WebSocket(urlWithToken);
         wsRef.current = ws;
 
         ws.onopen = () => {
+          if (!isMounted) return;
           setWsConnected(true);
-          ws.send(JSON.stringify({ action: 'subscribe', topic }));
+          if (topic) {
+            ws.send(JSON.stringify({ action: 'subscribe', topic }));
+          }
         };
 
         ws.onmessage = (event) => {
+          if (!isMounted) return;
           try {
             const parsed = JSON.parse(event.data);
             const { event: eventType, data } = parsed;
@@ -53,25 +64,31 @@ export function useWebSocket(topic: string = 'all', onEvent?: (event: string, da
           }
         };
 
-        ws.onclose = () => {
+        ws.onclose = (e) => {
+          if (!isMounted) return;
           setWsConnected(false);
-          reconnectTimeout = setTimeout(connect, 3000);
+          // If not closed intentionally, attempt reconnect after 3s
+          if (e.code !== 1000 && e.code !== 4401) {
+            reconnectTimeout = setTimeout(connect, 3000);
+          }
         };
 
         ws.onerror = () => {
+          if (!isMounted) return;
           setWsConnected(false);
           ws.close();
         };
       } catch (err) {
-        setWsConnected(false);
+        if (isMounted) setWsConnected(false);
       }
     };
 
     connect();
 
     return () => {
+      isMounted = false;
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      if (wsRef.current) wsRef.current.close();
+      if (wsRef.current) wsRef.current.close(1000, 'Component unmounted');
     };
   }, [topic, onEvent, setWsConnected, incrementUnreadAlerts, setNarration]);
 

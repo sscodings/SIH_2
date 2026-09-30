@@ -1,10 +1,12 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from backend.app.db.database import get_db
-from backend.app.db.models import FreezeRequest, Entity
-from backend.app.services.freeze import FreezeService
+
+from app.db.database import get_db
+from app.db.models import FreezeRequest, User
+from app.services.freeze import FreezeService, FreezeTransitionError
+from app.core.security import require_user
 
 router = APIRouter(prefix="/freeze-requests", tags=["Freeze Requests"])
 
@@ -15,16 +17,24 @@ class CreateFreezeRequest(BaseModel):
     suspect_wallet: str
     legal_order_ref: Optional[str] = "Cr.No 402/2026 U/S 66D IT Act & 420 IPC"
     notes: Optional[str] = ""
+    victim_loss_inr: Optional[float] = None
+    victim_loss_usd: Optional[float] = None
 
 class UpdateStatusRequest(BaseModel):
     status: str
-    user_email: str = "supervisor@demo"
-    frozen_amount_usd: Optional[float] = 0.0
+    frozen_amount_usd: Optional[float] = None
+    notes: Optional[str] = None
 
 @router.get("")
-def list_freeze_requests(db: Session = Depends(get_db)):
-    requests = db.query(FreezeRequest).order_by(FreezeRequest.created_at.desc()).all()
+def list_freeze_requests(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db)
+):
+    total = db.query(FreezeRequest).count()
+    requests = db.query(FreezeRequest).order_by(FreezeRequest.created_at.desc()).offset(skip).limit(limit).all()
     return {
+        "total": total,
         "freeze_requests": [
             {
                 "id": r.id,
@@ -40,6 +50,7 @@ def list_freeze_requests(db: Session = Depends(get_db)):
                 "legal_order_ref": r.legal_order_ref,
                 "created_by": r.created_by,
                 "approved_by": r.approved_by,
+                "approved_at": r.approved_at.isoformat() if r.approved_at else None,
                 "sent_at": r.sent_at.isoformat() if r.sent_at else None,
                 "acknowledged_at": r.acknowledged_at.isoformat() if r.acknowledged_at else None,
                 "frozen_amount_usd": r.frozen_amount_usd,
@@ -50,7 +61,11 @@ def list_freeze_requests(db: Session = Depends(get_db)):
     }
 
 @router.post("")
-def create_freeze(payload: CreateFreezeRequest, db: Session = Depends(get_db)):
+def create_freeze(
+    payload: CreateFreezeRequest,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
     fr = FreezeService.create_freeze_request(
         db=db,
         case_id=payload.case_id,
@@ -59,20 +74,36 @@ def create_freeze(payload: CreateFreezeRequest, db: Session = Depends(get_db)):
         suspect_wallet=payload.suspect_wallet,
         legal_order_ref=payload.legal_order_ref or "",
         notes=payload.notes or "",
-        created_by="investigator@demo"
+        created_by=current_user.email,
+        victim_loss_inr=payload.victim_loss_inr,
+        victim_loss_usd=payload.victim_loss_usd
     )
     return {"status": "created", "freeze_request_id": fr.id, "request_number": fr.request_number}
 
 @router.patch("/{id}/status")
-def update_status(id: int, payload: UpdateStatusRequest, db: Session = Depends(get_db)):
+def update_status(
+    id: int,
+    payload: UpdateStatusRequest,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
     try:
         updated = FreezeService.update_freeze_status(
             db=db,
             request_id=id,
             new_status=payload.status,
-            user_email=payload.user_email,
-            frozen_amount_usd=payload.frozen_amount_usd or 0.0
+            actor_email=current_user.email,
+            actor_role=current_user.role,
+            frozen_amount_usd=payload.frozen_amount_usd
         )
-        return {"status": "updated", "new_status": updated.status, "id": updated.id}
-    except ValueError as e:
+        return {
+            "status": "updated",
+            "new_status": updated.status,
+            "id": updated.id,
+            "approved_by": updated.approved_by,
+            "frozen_amount_usd": updated.frozen_amount_usd
+        }
+    except FreezeTransitionError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

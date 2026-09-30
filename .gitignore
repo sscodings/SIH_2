@@ -40,9 +40,13 @@ yarn-debug.log*
 yarn-error.log*
 
 # Database & Runtime artifacts
+*.db
 *.db-wal
 *.db-shm
 *.log
+reports_storage/
+backend/app/reports_storage/
+*.pdf
 
 # OS & IDE
 .DS_Store
@@ -50,3 +54,4 @@ Thumbs.db
 .vscode/
 .idea/
 .env
+docs/SDN_ADVANCED.XML

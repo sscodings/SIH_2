@@ -21,10 +21,14 @@ ChainNetra ("Netra" = Eye) is an automated blockchain forensics command room tai
 
 ## ⚡ Key Capabilities
 
-- **Automated First-VASP-Hit Tracing**: Priority-queue graph traversal keyed by tainted value exploring multi-chain transfers to identify cash-out exchanges in seconds.
-- **Taint Propagation Models**: Haircut (proportional allocation), FIFO (first-in first-out), and Poison (full contamination) models.
-- **Explainable Attribution & Heuristics**: Mathematical confidence scoring ($0.45 \cdot W_{label} + 0.30 \cdot E_{strength} + 0.15 \cdot C_{cluster} - 0.02 \cdot Hops$) citing exchange sweep patterns and cluster heuristics.
-- **Cross-Chain Bridge Analytics**: Heuristic matching across Tron, Ethereum, BSC, Polygon, and Arbitrum tracking bridge deposits, release transactions, and DEX router swaps.
+- **Automated Multi-Chain First-VASP-Hit Tracing**: Priority-queue graph traversal keyed by `(chain, address)` composite nodes across Tron, Bitcoin, Ethereum, BSC, Polygon, and Arbitrum with multi-root EVM expansion.
+- **Stateful Per-Wallet Taint Propagation**: Chronologically replayed wallet ledgers supporting Haircut (proportional allocation), FIFO (first-in first-out lot queues), and Poison (bounded contamination) with mathematical conservation invariants.
+- **Temporally Sound Lookahead Windows**: Strict `since` and `until` bounded traversal anchored to tainted fund arrival timestamps, preventing reverse-chronological false paths.
+- **Generalized Peel-Chain Detection**: Detection of $n$-output peeling chains requiring $\ge 3$ consecutive hops carrying $\ge 80\%$ tainted value.
+- **Evidence-Based Dynamic Attribution**: Mathematical confidence scoring ($0.45 \cdot W_{label} + 0.30 \cdot E_{strength} + 0.15 \cdot C_{cluster} - 0.02 \cdot Hops$) with label age decay, concrete evidence facts, and tiered confidence levels (`VERIFIED`, `HIGH`, `MEDIUM`, `LOW`).
+- **4-Point Multi-Sweep Deposit Heuristic**: Distinguishes true exchange deposit addresses ($\ge 3$ distinct senders, $\ge 90\%$ swept to hot wallet, consistent multi-sweep timing) from one-off mule senders.
+- **Service-Aware Clustering & UTXO Heuristics**: 24-hour SQL aggregated sweeps excluding service hot wallets, Bitcoin common-input ownership with CoinJoin exclusion, and fresh-wallet gas-funding dispersal tracking.
+- **Curated Service Registry & Cross-Chain Routing**: Curated directory for mixers, cross-chain bridges, DEX routers, and VASPs; token-aware bridge candidate matching with ambiguity scoring; and probabilistic mixer withdrawal branching ($\le 40\%$ confidence cap).
 - **AI / ML Risk & Typology Engine**: Random Forest wallet role classification, Isolation Forest anomaly scoring, and weighted rule matching across 7 fraud typologies (Pig-butchering, Task fraud, Sextortion, Ransomware, Phishing drainers, Darknet, Layering syndicates).
 - **Syndicate Convergence (Case Linking)**: Interactive evidence board linking disparate victim complaints across states converging onto shared collector clusters.
 - **Statutory Freeze Notice Composer**: Auto-populated freeze requests with transaction hashes, SLA countdowns, and multi-stage approval workflows (Draft $\rightarrow$ Supervisor Approval $\rightarrow$ Outbound Dispatch $\rightarrow$ Frozen).
@@ -74,9 +78,9 @@ python -m app.ml.train
 
 # Start backend server (Port 8000)
 # Windows:
-powershell -Command "$env:PYTHONPATH='.'; .\venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
+.\venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 # Linux/macOS:
-PYTHONPATH=. uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 In a second terminal:

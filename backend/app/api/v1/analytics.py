@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta, timezone
-from backend.app.db.database import get_db
-from backend.app.db.models import Case, Complaint, Attribution, FreezeRequest, Wallet, Entity
-from backend.app.core.config import settings
+from app.db.database import get_db
+from app.db.models import Case, Complaint, Attribution, FreezeRequest, Wallet, Entity
+from app.core.config import settings
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -34,7 +34,7 @@ def get_analytics_summary(db: Session = Depends(get_db)):
     freeze_ack = db.query(FreezeRequest).filter(FreezeRequest.status.in_(["Acknowledged", "Frozen"])).count() + 2
 
     # Recoverable dormant funds
-    dormant_rec = db.query(func.sum(Wallet.balance_usd)).filter(Wallet.entity_type.contains("Dormant")).scalar()
+    dormant_rec = db.query(func.sum(Wallet.balance_usd)).filter(Wallet.category.contains("Dormant")).scalar()
     dormant_usd = float(dormant_rec) if dormant_rec else 40000.0
     dormant_inr = dormant_usd * settings.USD_INR
 

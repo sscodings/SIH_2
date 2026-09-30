@@ -1,0 +1,101 @@
+complaint_id,data_origin,state,category,amount_inr,incident_date,victim_id_masked,suspect_wallet_address,chain,txn_hash,bank_or_exchange_named
+SYN-0001,SYNTHETIC,Maharashtra,Investment fraud,450000,2026-08-12,V****4821,TVssLZco7KSwkQ3NwsuwQPRxUVjXfVwYY2,TRX,c011d7fa1316cb0a05456d60552038873eb5ca79797b1fce9d828ee537b0adca,Unspecified bank (INR)->P2P
+SYN-0002,SYNTHETIC,Karnataka,Task/part-time job scam,120000,2026-08-19,V****0397,0xABa250B6f3334Fa1E5E6B37aEFbBE56507F84797,ETH,0xb8f67880da6c033674c25d1469ab9434a209a39224ceb600766decdb8ae76329,CoinDCX
+SYN-0003,SYNTHETIC,Delhi,Digital arrest,1850000,2026-09-02,V****7710,1AycQxUK1k39gro3gDyRQ3vaHeDgjyD9o3,BTC,2d9f15b5c4d1818c9802d67991a89149c82409c79f13fd3cfc01757cc1e2393e,Unspecified
+SYN-0004,SYNTHETIC,Telangana,Fake trading app,760000,2026-09-09,V****2256,0xd746108C820a9432f370DfFeEaF1B82CA7DD131D,BSC,0xfafe5995e089ba98292e3e6452c8480a9d192c9ab465bd1bfbee539b6dff418c,Binance
+SYN-0005,SYNTHETIC,Gujarat,Romance/pig-butchering,2300000,2026-09-15,V****9034,TUomLVBrroLZiEWKzUMHdiqUrbQ7FvRfdG,TRX,60d02d9e5596b2dcdba45fcd0a672cef9d69b8afff23c9b1c79d112300df83ed,WazirXYou are working on "ChainNetra" (FastAPI in /backend, React in /frontend). Prompts A, B, C are applied: imports are `app.*`, auth/roles exist, adapters raise `AdapterError` (no demo fallback in LIVE mode), service registry and address helpers (node_key, normalize) exist, tests use in-memory fixtures.
+
+## Step 0: read, then assess (no code yet)
+Read every file in docs/research/: provider_limits.md, decisions.md, fiu_vasp_list.csv, ofac_sample.xml/.csv, exchange_addresses*.csv, sample_complaint.csv. Use them as real fixtures; copy the ones tests need into tests/fixtures/. Never invent addresses, VASP names, contacts or API specs; where data is missing, build the loader and ship an empty placeholder with a documented TODO.
+Then output: (1) a plan, (2) files you will create vs modify, (3) a blast-radius list: what existing behavior each modified file can break, and which tests cover it. Do NOT touch auth, tracing heuristics, ML or UI styling beyond the pages named here. Implement one section at a time; run its verification before the next. After each section run `git diff --stat` and confirm only expected files changed.
+
+## 1. Label ingestion (app/labels/)
+Pluggable `LabelSource`: fetch() -> LabelRecord(chain, address, entity, category, source, source_url, license, weight_tier, wallet_type, raw_wallet_type, valid_from, valid_to, superseded_by, snapshot_date, verified_at, fetched_at). Store history with status (active/pending/revoked/inactive); never overwrite silently. Conflicts: keep both, attribute with the higher-reliability one, list the conflict in evidence.
+
+a) OFAC SDN (Advanced XML). Each address is a <Feature FeatureTypeID> whose <VersionDetail DetailTypeID="1432"> holds the address, linked via <IdentityReference IdentityID> -> Identity -> DistinctParty FixedRef. FeatureType IDs: 344 XBT, 345 ETH, 444 XMR, 566 LTC, 686 ZEC, 687 DASH, 688 BTG, 689 ETC, 706 BSV, 726 BCH, 746 XVG, 887 USDT, 907 XRP, 989 BNB, 992 TRX, 996 DOGE, 998 USDC, 1007 ARB, 1008 BSC, 1167 SOL. The sample is a fragment (<SampleFragment> root); the parser must also work on full SDN_ADVANCED.XML and never hardcode the root. Program/listing date optional; store the list's published date.
+ - Infer chain from ADDRESS FORMAT, not currency label (USDT rows are Tron addresses): Base58Check 0x41 (T+33) -> tron; 0x+40 hex -> "evm" family (one label, match on lowercase across all EVM chains); Base58Check/bech32 -> bitcoin.
+ - Untraceable currencies (XMR, DASH, ZEC, others): chain "unsupported:<ticker>"; still match reported wallets, never send to tracer.
+ - Golden test: ofac_sample.xml yields exactly the 234 rows in ofac_sample.csv, no duplicates.
+ - Category "sanctioned"; a hit on any case or watchlist wallet raises a CRITICAL alert.
+
+b) FIU-IND VASP list. 2 Dec 2024 Lok Sabha snapshot (47 entities, out of date), not the live registry. Store as_of="2024-12-02"; show a UI staleness warning when older than 180 days. entity_type, registration_date, nodal_officer_email/phone are empty: keep nullable, never fill. Key by legal name; support multiple trade-name aliases (Rario under two legal entities; 5 entities have no trade name). No addresses in this list: use only for registered_in_india and freeze-notice routing. No nodal contact -> notice shows "contact not on file - analyst must add" and auto-dispatch is blocked.
+
+c) Exchange CSV importer (docs/research/exchange_addresses*.csv). Columns: chain, address, entity, source_url, verified_date, snapshot_date, wallet_type, verification_status. Map ETH->ethereum, BSC->bsc, TRX->tron, BTC->bitcoin; reject unknown chains. Labels are CHAIN-SPECIFIC (never extend ETH to BSC/Polygon). snapshot_date may be free text: store text, parse when possible. verified_date is empty everywhere: rows whose status starts with "official_source_only" get weight tier "unverified_official"; reports say "label not independently verified". Snapshots are from 2022: apply label-age decay from prompt C section 5.
+ - wallet_type normalization: hot->hot; cold and cold_storage->cold; hot_or_cold_unspecified and any free text (e.g. "label_Binance_14 (hot/cold not stated by explorer)")->unknown; keep original in raw_wallet_type.
+ - Recommendation rules: hot -> "freeze now" allowed. unknown -> "exchange-controlled wallet reached; confirm wallet type with the exchange, then request freeze". cold -> "funds moved past the exchange's deposit layer; contact the exchange". Never say "deposit reached VASP / freeze now" unless wallet_type is hot or deposit. Only 1 row is hot (Binance TRX TV6Mu...), so "freeze now" applies only there.
+ - valid_from/valid_to: a label applies to transfers inside its window. Unocoin BTC: 1PSh1go1ZBvULhGV4BsekEaVAAESa2fNWp was replaced by 1JMXdyMbi2R4EKn8DQNZEEDzZBWPmsaXSR on 2023-06-23; load the old address as its own label with valid_to=2023-06-23 and superseded_by set.
+ - Unocoin's ETH address (stated for ETH/MATIC/USDT/ERC-20, chain per coin unstated): label ONLY on ethereum.
+ - A row whose status says drained/inactive loads as inactive and never attributes (Bybit 0x1Db92e...).
+ - Join entities to FIU list by legal name/alias: Binance -> "Binance International Limited", Unocoin -> "Unocoin Technologies Pvt Ltd". Bybit is not in the Dec 2024 snapshot: show "not in FIU snapshot", never "unregistered".
+ - `python -m app.labels.sync --source exchange_csv --verify` checks each address for recent activity via adapters and records active_recently or inactive_since_<date> instead of trusting the file.
+ - Golden test: file loads 29 labels + the 1 superseded Unocoin BTC row as separate label, 0 rejects, 3 entities (Binance, Bybit, Unocoin); Bybit 0x1Db92e... is inactive. (Assert counts from the actual file; if they differ, report the difference, don't force it.)
+ - Known gap in docs/DATA_SOURCES.md: no OKX, KuCoin, WazirX, CoinDCX. Never invent them.
+
+d) Analyst labels via admin API with supervisor approval (pending until approved).
+e) Commercial provider interface (Chainalysis/TRM/Elliptic/Arkham): env key, disabled by default, no scraping.
+Scheduling: CLI `python -m app.labels.sync --source <name>` plus daily job (section 4). Log added/changed/removed counts. Every label stores source URL, license note, fetched_at.
+Verify: loader tests on fixtures; revoked label stops attributing; conflict rule; inactive row never attributes; label outside its valid window doesn't attribute.
+
+## 2. Complaint ingestion (NCRP mocked, contract-first)
+NCRP/CFCFRMS has no verified public third-party API: the NCRP adapter is a MOCK behind a `ComplaintSource` interface. SAHYOG is an IT Act s.79(3)(b) takedown-notice portal, NOT a complaint feed: do not build it inbound; at most an optional outbound "notice export" marked unverified. Write docs/integration-contract.md: real specs pending, proposed interface, schema_version field.
+Channels through one pipeline: (1) REST POST /api/v1/ingest/complaints with hashed, scoped (ingest:write), rotatable, rate-limited API keys + HMAC signature + timestamp (reject >5 min) + per-key audit; (2) file-drop watcher with processed/failed folders; (3) pull connector interface with a mock.
+CSV contract (headers of docs/research/sample_complaint.csv):
+ complaint_id -> complaint_number (idempotency key with source_system) | data_origin (REAL|SYNTHETIC) | state -> victim_state | category -> fraud_type | amount_inr -> amount_lost_inr (blank -> amount_unknown, never a default) | incident_date -> incident_at (lower time bound for tracing) | victim_id_masked -> victim_ref (already masked; never request/store real names) | suspect_wallet_address -> reported wallet (checksum-validated) | chain -> HINT only: verify against address format, use format on disagreement, log the mismatch | txn_hash -> the victim's payment tx: find the receiving address and trace forward from it instead of the wallet's full history; normalize per chain (Tron and BTC: 64 hex, no 0x; EVM: 0x + 64 hex) | bank_or_exchange_named -> claimed_vasp_hint (free text, cross-check only, never evidence or a label). Also accept the legacy headers (wallet/address, amount_inr, victim_name, victim_state, fraud_type).
+ - data_origin stored on complaint and case; SYNTHETIC excluded from analytics, exports and reports unless DEMO flag is on; visibly badged in UI.
+ - Idempotency: unique (source_system, complaint_number); resend returns existing record with status "duplicate"; honor Idempotency-Key header.
+ - complaint_wallets table (complaint_id, chain, normalized address) replaces the discarded string `contains` match. A wallet in other complaints links them, persists linked_complaint_ids, raises a "new linked complaint" alert.
+ - Per-row validation errors; batch response reports accepted/duplicate/rejected counts.
+ - Auto-case: AUTO_CASE_MIN_PRIORITY, default "High" (decisions.md item 2 is an unresolved TODO for the owner; read it and follow it if it has since been filled in). When met, create/attach a case for the wallet and enqueue a trace (section 3).
+ - If the reported wallet is a known VASP label, flag "reported wallet is a known VASP", don't trace it.
+ - PII: encrypt victim_ref/contact at rest (Fernet, env key), redact in logs; unmasked values only for supervisor/admin.
+ - Outbound: webhooks with outbox and retry for freeze requests and alerts.
+Fixtures: tests/fixtures/sample_complaint.csv = SYN-0001..0005 as provided plus:
+ SYN-0001 replayed as a second row with the same complaint_id (duplicate test)
+ SYN-0007 ETH wallet, blank amount, blank txn_hash
+ SYN-0008 same Tron wallet as SYN-0001, new ID (link test)
+ SYN-0009 Tron address TUomLVBrroLZiEWKzUMHdiqUrbQ7FvRfdG with chain hint ETH (mismatch)
+ SYN-0010 wallet TNiq9AXBp9EjUqhDhrwrfvAA8U3GUQZH81 (must be looked up in ofac_sample.csv; if absent, use a real Tron address from that file and say so)
+ SYN-0011 TVssLZco7KSwkQ3NwsuwQPRxUVjXfVwYY3 (bad checksum)
+ SYN-0012 TV6MuMXfmLbBqPZvBHdwFsDnQeVfnmiuSi (known exchange hot wallet)
+Expected: replay=duplicate; 0007 amount_unknown; 0008 links to 0001; 0009 mismatch logged, Tron used; 0010 CRITICAL sanctions alert; 0011 rejected (bad checksum); 0012 flagged as known VASP, not traced.
+Synthetic tx hashes may not exist on-chain: tests use the fake adapter only; in LIVE mode "transaction not found" is an incomplete branch, not a failure.
+Verify: idempotent replay, cross-complaint linking, bad signature, stale timestamp, bad address, chain mismatch, blank amount, file-drop success/failure, txn_hash start point, all fixture outcomes above.
+
+## 3. Job queue and Postgres
+- arq + Redis (read arq cron docs and the Redis-lock pattern first). POST /cases/{id}/trace creates a TraceJob row (queued) and enqueues; a separate worker runs TracingEngine. Job state in the DB, not module dicts.
+- Cancellation/progress flags in Redis/DB; retries with backoff on AdapterError; max runtime per job; dead-letter handling; startup sweep marks stuck "running" jobs failed. Worker concurrency must not exceed the provider limits in section 6.
+- Worker publishes events to Redis pub/sub; API process forwards to authorized WebSocket clients.
+- Postgres: DATABASE_URL required in LIVE mode; SQLite only for tests/quick DEMO. Alembic with an initial migration; remove seed/train from the Dockerfile build (use `make seed`). Back up or commit before migrating.
+- Replace count-based case/complaint/freeze numbers with sequences or a locked counters table.
+- docker-compose: api, worker, postgres, redis, frontend, healthchecks, named volumes, env from .env (fix the current volume mismatch).
+Verify: integration test (testcontainers/compose, skipped if absent) for enqueue -> worker -> events -> DB state, using the SYN-0001 complaint with the fake adapter; cancellation; stuck-job sweep.
+
+## 4. Scheduler, monitoring, alerts
+- arq cron (single instance via Redis lock): watchlist monitor every WATCHLIST_MONITOR_INTERVAL_SECONDS (persist last_checked_at per wallet; spread wallets across the interval; refuse or warn at startup if wallets x interval would exceed the daily quota in provider_limits.md), label sync daily, price cache refresh, stuck-job sweep, audit checkpoint.
+- Alerts table: type, severity, wallet/case refs, evidence tx hashes, dedup key, status (new/ack/resolved), created_at.
+- Severity (decisions.md item 4; follow the file if it differs): sanctioned hit = critical; mixer = high; move to registered or unregistered VASP = high; new inflow = medium; new linked complaint = medium.
+- Channels: WebSocket "alerts" topic (authorized), webhooks; SMTP email off by default. Per-wallet flood limiting.
+- Endpoints: list/ack/resolve alerts (role-checked); GET monitor status (last run, wallets checked, errors).
+Verify: fake adapter + frozen clock: new transfer -> exactly one alert, repeat run -> none, sanctioned counterparty -> CRITICAL, transfer into an active exchange label -> VASP alert with the correct wallet_type wording.
+
+## 5. Address validation and EVM multi-chain
+- Extend app/core/addresses.py with maintained libs (base58, bech32, eth-utils/pycryptodome; add to requirements): Tron Base58Check 0x41; Bitcoin Base58Check + bech32/bech32m; EVM format + EIP-55 (accept all-lowercase, reject wrong mixed-case). Return {valid, family, candidate_chains, normalized, error}. Validate tx hash formats per chain.
+- Bare EVM address: candidate_chains = in-scope chains from decisions.md item 3 (ethereum, polygon, arbitrum; bsc only if the section 6 provider map can serve it). One trace root per candidate chain, ranked by on-chain activity. Tokens: USDT, USDC.
+- Positive tests from docs/research: OFAC sample (198 valid Tron incl. 59 USDT-tagged, 7 legacy BTC, 21 EIP-55 EVM + 1 lowercase EVM) and all 29 exchange addresses (Tron, BTC, EIP-55). Negatives: bad checksum, truncated, wrong prefix, bad EIP-55 casing, bad Tron checksum (SYN-0011).
+
+## 6. Rate limiting, pagination, provider map (numbers from provider_limits.md, checked 2026-09-30; re-verify before demo)
+- app/adapters/http.py: Redis token bucket per provider (shared across workers), exponential backoff + jitter, honor Retry-After/429/5xx, timeouts, circuit breaker (open after N failures, half-open probe).
+- Defaults: ETHERSCAN_RPS=3 (ONE global limiter across chains; free tier 3/s, 100k/day; older docs say 5/s, keep configurable), TRONGRID_QPS=10 (100k/day free; exceeding QPS gives 403 and ~30s block; do not poll faster than ~3s), COINGECKO_RPM=60, COINGECKO_MONTHLY_BUDGET=9000 (demo cap 10,000/month is the binding limit).
+- Etherscan V2: https://api.etherscan.io/v2/api?chainid=<id>&...; one chainid per request; key from env. Provider map: chain -> etherscan_v2 | blockscout | none. BSC defaults to blockscout (free key, ~5 RPS, 100k credits/day per their docs) until confirmed. Map "Max rate limit reached", "Free API access is not supported for this chain", "Community Free API limit reached" to RateLimited, ChainUnsupported, QuotaExhausted. No working provider -> ChainUnsupported, branch marked incomplete; NEVER demo fallback.
+- Pricing: USDT/USDC use the peg (0 API calls). Others via CoinGecko /simple/price, batched, cached, param x_cg_demo_api_key, host api.coingecko.com. Track monthly usage; when exhausted raise QuotaExhausted, never guess.
+- Pagination: get_transfers loops until exhausted or ADAPTER_MAX_PAGES / ADAPTER_MAX_TRANSFERS_PER_ADDRESS; return truncated=True with reason when capped. No silent 50-row limits.
+- Cache: short-TTL Redis (in-memory fallback) keyed by provider+endpoint+params, longer TTL for finalized history, never cache errors, hit/miss counters.
+- Metrics: per-provider calls, errors, latency, throttle waits at /api/v1/system/metrics (admin only).
+Verify (httpx.MockTransport): 429 then success honoring Retry-After; pagination collects all pages; cap sets truncated; breaker opens and recovers; cache avoids second call; ChainUnsupported for unmapped chain; monthly budget exhaustion.
+
+## Definition of done
+- `pytest -q` passes (Postgres/Redis tests may skip without services but run under `make test-integration`). `docker compose up` starts api, worker, postgres, redis, frontend; `make seed` and label sync work.
+- docs/DATA_SOURCES.md: each source, URL, license, cadence, snapshot dates, gaps (2022 exchange snapshots, no OKX/KuCoin/WazirX/CoinDCX, FIU list is a Dec 2024 snapshot with no nodal contacts, OFAC list date, only 1 hot-wallet label).
+- docs/integration-contract.md as above.
+- GAPS_CHANGES.md: changes per section, all new env vars, and a "Not verifiable here" list (real NCRP endpoints/credentials, SAHYOG outbound format, FIU nodal contacts, commercial provider keys, whether free Etherscan covers BSC, production rate limits).
+- README claims only what exists and was run.

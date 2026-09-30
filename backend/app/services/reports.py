@@ -11,9 +11,9 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from sqlalchemy.orm import Session
-from backend.app.db.models import Case, Report, TraceSnapshot
-from backend.app.core.config import settings
-from backend.app.core.audit import log_audit_action
+from app.db.models import Case, Report, TraceSnapshot
+from app.core.config import settings
+from app.core.audit import log_audit_action
 
 REPORTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports_storage")
 os.makedirs(REPORTS_DIR, exist_ok=True)

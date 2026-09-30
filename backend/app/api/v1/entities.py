@@ -1,11 +1,15 @@
 import csv
 import io
+import os
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from backend.app.db.database import get_db
-from backend.app.db.models import Entity, EntityAddress, Label, LabelSource
+from app.db.database import get_db
+from app.db.models import Entity, EntityAddress, Label, LabelSource, User
+from app.core.security import require_user, require_role
+from app.core.audit import log_audit_action
+from app.core.validators import validate_crypto_address
 
 router = APIRouter(prefix="", tags=["Entities & Labels"])
 
@@ -39,15 +43,23 @@ def list_vasps(db: Session = Depends(get_db)):
     return {"vasps": results}
 
 @router.get("/labels")
-def list_labels(chain: Optional[str] = None, entity: Optional[str] = None, db: Session = Depends(get_db)):
+def list_labels(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    chain: Optional[str] = None,
+    entity: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     query = db.query(Label)
     if chain:
         query = query.filter(Label.chain == chain.lower())
     if entity:
         query = query.filter(Label.entity.ilike(f"%{entity}%"))
-    labels = query.order_by(Label.created_at.desc()).limit(200).all()
+    
+    total = query.count()
+    labels = query.order_by(Label.created_at.desc()).offset(skip).limit(limit).all()
     return {
-        "total": len(labels),
+        "total": total,
         "labels": [
             {
                 "id": l.id,
@@ -64,11 +76,24 @@ def list_labels(chain: Optional[str] = None, entity: Optional[str] = None, db: S
     }
 
 @router.post("/labels")
-def create_label(payload: LabelRequest, db: Session = Depends(get_db)):
+def add_label(
+    payload: LabelRequest,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    addr_clean = payload.address.strip()
+    chain_clean = payload.chain.lower().strip()
+
+    if not validate_crypto_address(addr_clean, chain_clean):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid address format for chain '{chain_clean}': '{addr_clean}'"
+        )
+
     label = Label(
-        address=payload.address.strip(),
-        chain=payload.chain.lower(),
-        entity=payload.entity.strip(),
+        address=addr_clean,
+        chain=chain_clean,
+        entity=payload.entity,
         category=payload.category,
         source=payload.source,
         confidence=payload.confidence
@@ -76,34 +101,64 @@ def create_label(payload: LabelRequest, db: Session = Depends(get_db)):
     db.add(label)
     db.commit()
     db.refresh(label)
-    return {"status": "created", "label_id": label.id}
 
-@router.delete("/labels/{id}")
-def delete_label(id: int, db: Session = Depends(get_db)):
-    label = db.query(Label).filter(Label.id == id).first()
-    if not label:
-        raise HTTPException(status_code=404, detail="Label not found")
-    db.delete(label)
-    db.commit()
-    return {"status": "deleted", "id": id}
+    log_audit_action(
+        db=db,
+        user_email=current_user.email,
+        action="CREATE_LABEL",
+        entity_type="LABEL",
+        entity_id=str(label.id),
+        details={"address": label.address, "entity": label.entity, "chain": label.chain}
+    )
 
-@router.post("/labels/import")
-async def import_labels_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    content = await file.read()
-    reader = csv.DictReader(io.StringIO(content.decode("utf-8")))
-    imported = 0
+    return {"status": "created", "id": label.id}
+
+@router.post("/labels/bulk-import")
+async def bulk_import_labels(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files supported for bulk label import")
+
+    content_bytes = await file.read()
+    if len(content_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="CSV file size exceeds limit of 5MB")
+
+    content_str = content_bytes.decode("utf-8-sig", errors="ignore")
+    reader = csv.DictReader(io.StringIO(content_str))
+    count = 0
+
     for row in reader:
         addr = row.get("address", "").strip()
-        chain = row.get("chain", "tron").strip().lower()
-        entity = row.get("entity", "Unknown").strip()
+        chain = row.get("chain", "tron").lower().strip()
+        entity = row.get("entity", "").strip()
         category = row.get("category", "VASP").strip()
-        source = row.get("source", "CSV Import").strip()
-        conf = float(row.get("confidence", 0.9))
+        confidence = float(row.get("confidence", 0.90))
 
-        if addr and entity:
-            lbl = Label(address=addr, chain=chain, entity=entity, category=category, source=source, confidence=conf)
-            db.add(lbl)
-            imported += 1
-
+        if addr and entity and validate_crypto_address(addr, chain):
+            l = Label(
+                address=addr,
+                chain=chain,
+                entity=entity,
+                category=category,
+                source="Bulk Import",
+                confidence=confidence
+            )
+            db.add(l)
+            count += 1
+            if count >= 2000:
+                break
     db.commit()
-    return {"status": "success", "imported_count": imported}
+
+    log_audit_action(
+        db=db,
+        user_email=current_user.email,
+        action="BULK_IMPORT_LABELS",
+        entity_type="LABEL",
+        entity_id="BULK",
+        details={"imported_count": count}
+    )
+
+    return {"status": "imported", "count": count}

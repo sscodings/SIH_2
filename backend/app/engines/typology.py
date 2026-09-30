@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
-from backend.app.engines.risk import RiskEngine
+from app.engines.risk import RiskEngine
 
 class TypologyEngine:
     @staticmethod

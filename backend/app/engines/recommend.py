@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
-from backend.app.core.config import settings
+from app.core.config import settings
 
 class RecommendationEngine:
     @staticmethod

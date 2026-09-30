@@ -1,9 +1,10 @@
 import logging
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from backend.app.core.config import settings
-from backend.app.core.ws import ws_manager
-from backend.app.api.v1 import (
+from app.core.config import settings
+from app.core.ws import ws_manager
+from app.core.security import SecurityHeadersMiddleware, require_user, require_role
+from app.api.v1 import (
     auth, complaints, cases, wallets, entities, watchlist,
     alerts, freeze, reports, verify, analytics, admin, webhooks, system
 )
@@ -19,52 +20,49 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# CORS Middleware
+# Security Headers Middleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS Middleware (Env configured, no wildcard with credentials)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Native WebSocket Endpoint
+# Native WebSocket Endpoint (protected with token authentication in Section 5)
 @app.websocket("/ws/events")
 async def websocket_events_endpoint(websocket: WebSocket):
-    await ws_manager.connect(websocket)
-    try:
-        while True:
-            data = await websocket.receive_json()
-            action = data.get("action")
-            if action == "subscribe":
-                topic = data.get("topic", "all")
-                ws_manager.subscribe(websocket, topic)
-                await websocket.send_json({"event": "subscribed", "topic": topic})
-            elif action == "ping":
-                await websocket.send_json({"event": "pong"})
-    except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
-    except Exception as e:
-        logger.warning(f"WebSocket client error: {e}")
-        ws_manager.disconnect(websocket)
+    from app.core.ws import handle_websocket_connection
+    await handle_websocket_connection(websocket)
 
-# Include API v1 routers
+# Include API v1 routers with role-based access control
 prefix = settings.API_V1_STR
+
+# Public & Hybrid Auth
 app.include_router(auth.router, prefix=prefix)
-app.include_router(complaints.router, prefix=prefix)
-app.include_router(cases.router, prefix=prefix)
-app.include_router(wallets.router, prefix=prefix)
-app.include_router(entities.router, prefix=prefix)
-app.include_router(watchlist.router, prefix=prefix)
-app.include_router(alerts.router, prefix=prefix)
-app.include_router(freeze.router, prefix=prefix)
-app.include_router(reports.router, prefix=prefix)
 app.include_router(verify.router, prefix=prefix)
-app.include_router(analytics.router, prefix=prefix)
-app.include_router(admin.router, prefix=prefix)
-app.include_router(admin.audit_router, prefix=prefix)
-app.include_router(webhooks.router, prefix=prefix)
-app.include_router(system.router, prefix=prefix)
+
+# Investigator / General Protected Routers (require_user)
+app.include_router(cases.router, prefix=prefix, dependencies=[Depends(require_user)])
+app.include_router(complaints.router, prefix=prefix, dependencies=[Depends(require_user)])
+app.include_router(wallets.router, prefix=prefix, dependencies=[Depends(require_user)])
+app.include_router(entities.router, prefix=prefix, dependencies=[Depends(require_user)])
+app.include_router(watchlist.router, prefix=prefix, dependencies=[Depends(require_user)])
+app.include_router(alerts.router, prefix=prefix, dependencies=[Depends(require_user)])
+app.include_router(freeze.router, prefix=prefix, dependencies=[Depends(require_user)])
+app.include_router(reports.router, prefix=prefix, dependencies=[Depends(require_user)])
+app.include_router(system.router, prefix=prefix, dependencies=[Depends(require_user)])
+
+# Supervisor / Admin Protected Routers
+app.include_router(analytics.router, prefix=prefix, dependencies=[Depends(require_role("supervisor", "admin"))])
+app.include_router(admin.audit_router, prefix=prefix, dependencies=[Depends(require_role("supervisor", "admin"))])
+
+# Admin Only Routers
+app.include_router(admin.router, prefix=prefix, dependencies=[Depends(require_role("admin"))])
+app.include_router(webhooks.router, prefix=prefix, dependencies=[Depends(require_role("admin"))])
 
 @app.get("/")
 def root():

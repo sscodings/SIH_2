@@ -1,30 +1,82 @@
 import os
+import json
+import logging
 import joblib
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.orm import Session
-from backend.app.db.models import Transfer, Wallet
+from app.db.models import Transfer, Wallet
+
+logger = logging.getLogger(__name__)
 
 MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ml", "models")
+
+# Default fallback feature list if model_card is missing
+DEFAULT_FEATURE_ORDER = [
+    "fan_in", "fan_out", "total_in_usd", "total_out_usd", "pass_through_ratio",
+    "round_amount_ratio", "age_days", "burstiness", "mixer_exposure", "bridge_exposure", "dormant_flag"
+]
+
+class MLModelManager:
+    _instance: Optional["MLModelManager"] = None
+
+    def __init__(self):
+        self.rf_model = None
+        self.iso_model = None
+        self.feature_order = DEFAULT_FEATURE_ORDER
+        self.loaded = False
+        self._load_models()
+
+    def _load_models(self):
+        try:
+            card_path = os.path.join(MODEL_DIR, "model_card.json")
+            if os.path.exists(card_path):
+                with open(card_path, "r") as f:
+                    card_data = json.load(f)
+                    self.feature_order = card_data.get("feature_order", DEFAULT_FEATURE_ORDER)
+
+            rf_path = os.path.join(MODEL_DIR, "wallet_role_rf.joblib")
+            if os.path.exists(rf_path):
+                self.rf_model = joblib.load(rf_path)
+
+            iso_path = os.path.join(MODEL_DIR, "anomaly_iso.joblib")
+            if os.path.exists(iso_path):
+                self.iso_model = joblib.load(iso_path)
+
+            if self.rf_model is not None and self.iso_model is not None:
+                self.loaded = True
+        except Exception as e:
+            logger.warning(f"Failed to load ML models gracefully: {e}")
+            self.loaded = False
+
+    @classmethod
+    def get_instance(cls) -> "MLModelManager":
+        if cls._instance is None:
+            cls._instance = MLModelManager()
+        return cls._instance
 
 class RiskEngine:
     @staticmethod
     def extract_features(db: Session, address: str, chain: str) -> Dict[str, float]:
         """
-        Extracts 12 forensic behavioral features for a wallet.
+        Extracts forensic behavioral features for a wallet.
         """
+        from app.core.addresses import normalize
+        from app.core.service_registry import ServiceRegistry
+
+        norm_addr = normalize(chain, address)
         in_transfers = db.query(Transfer).filter(
-            Transfer.to_address.ilike(address),
+            Transfer.to_address == norm_addr,
             Transfer.chain == chain
         ).all()
 
         out_transfers = db.query(Transfer).filter(
-            Transfer.from_address.ilike(address),
+            Transfer.from_address == norm_addr,
             Transfer.chain == chain
         ).all()
 
-        fan_in = len(set(t.from_address.lower() for t in in_transfers))
-        fan_out = len(set(t.to_address.lower() for t in out_transfers))
+        fan_in = len(set(normalize(chain, t.from_address) for t in in_transfers))
+        fan_out = len(set(normalize(chain, t.to_address) for t in out_transfers))
 
         total_in = sum(t.amount_usd for t in in_transfers)
         total_out = sum(t.amount_usd for t in out_transfers)
@@ -34,7 +86,7 @@ class RiskEngine:
         all_txs = in_transfers + out_transfers
         if all_txs:
             timestamps = sorted([t.timestamp for t in all_txs])
-            age_days = (timestamps[-1] - timestamps[0]).total_seconds() / 86400.0
+            age_days = max(0.01, (timestamps[-1] - timestamps[0]).total_seconds() / 86400.0)
             round_amts = sum(1 for t in all_txs if t.amount > 0 and (t.amount % 10 == 0 or t.amount % 50 == 0))
             round_amount_ratio = round_amts / len(all_txs)
             burstiness = len(all_txs) / max(1.0, age_days)
@@ -44,16 +96,22 @@ class RiskEngine:
             burstiness = 0.0
 
         wallet_record = db.query(Wallet).filter(
-            Wallet.address.ilike(address),
+            Wallet.address == norm_addr,
             Wallet.chain == chain
         ).first()
 
         balance_usd = wallet_record.balance_usd if wallet_record else max(0.0, total_in - total_out)
         is_dormant = 1.0 if (len(out_transfers) == 0 and balance_usd > 100.0) else 0.0
-        
-        # Exposure to mixers/bridges
-        mixer_exposure = 1.0 if any("mix" in t.to_address.lower() or "mix" in t.from_address.lower() for t in all_txs) else 0.0
-        bridge_exposure = 1.0 if any(t.is_contract_call or "bridge" in t.to_address.lower() for t in all_txs) else 0.0
+
+        # Verified exposure to mixers and bridges strictly via curated ServiceRegistry
+        mixer_exposure = 1.0 if any(
+            ServiceRegistry.is_mixer(t.chain, t.to_address) or ServiceRegistry.is_mixer(t.chain, t.from_address)
+            for t in all_txs
+        ) else 0.0
+        bridge_exposure = 1.0 if any(
+            ServiceRegistry.is_bridge(t.chain, t.to_address) or ServiceRegistry.is_bridge(t.chain, t.from_address)
+            for t in all_txs
+        ) else 0.0
 
         return {
             "fan_in": float(fan_in),
@@ -72,12 +130,37 @@ class RiskEngine:
         }
 
     @staticmethod
+    def predict_ml_role_and_anomaly(features: Dict[str, float]) -> Tuple[Optional[str], Optional[float], Optional[float]]:
+        import pandas as pd
+        mgr = MLModelManager.get_instance()
+        if not mgr.loaded or mgr.rf_model is None or mgr.iso_model is None:
+            return None, None, None
+
+        try:
+            # Build feature DataFrame in the exact persisted feature_order
+            row_dict = {col: [features.get(col, 0.0)] for col in mgr.feature_order}
+            feat_df = pd.DataFrame(row_dict)
+            
+            # Predict role & probability
+            role = str(mgr.rf_model.predict(feat_df)[0])
+            probas = mgr.rf_model.predict_proba(feat_df)[0]
+            confidence = round(float(np.max(probas)), 3)
+
+            # Predict anomaly score
+            anomaly_score = round(float(mgr.iso_model.decision_function(feat_df)[0]), 3)
+
+            return role, confidence, anomaly_score
+        except Exception as e:
+            logger.warning(f"Error executing ML model prediction: {e}")
+            return None, None, None
+
+    @staticmethod
     def calculate_wallet_risk(db: Session, address: str, chain: str) -> Dict[str, Any]:
         features = RiskEngine.extract_features(db, address, chain)
         
         # Rule-based risk score blend
-        score = 15.0 # baseline
-        factors = []
+        score = 15.0  # baseline
+        factors: List[Dict[str, str]] = []
 
         if features["mixer_exposure"] > 0:
             score += 35.0
@@ -133,6 +216,37 @@ class RiskEngine:
                 "why": "Attempt to obscure forensic trail across blockchain boundaries"
             })
 
+        # ML Model Inference & Blending
+        ml_role, ml_confidence, anomaly_score = RiskEngine.predict_ml_role_and_anomaly(features)
+        
+        if ml_role:
+            if ml_role in ["collector", "mixer", "intermediary", "peel"]:
+                impact_val = 15.0 if (ml_confidence or 0) >= 0.7 else 10.0
+                score += impact_val
+                factors.append({
+                    "feature": "ML Role Classification",
+                    "value": f"{ml_role.upper()} ({((ml_confidence or 0)*100):.1f}%)",
+                    "impact": f"+{int(impact_val)}",
+                    "why": f"Random Forest pattern classifier identified role as {ml_role}"
+                })
+            elif ml_role == "normal" and (ml_confidence or 0) >= 0.85:
+                score = max(5.0, score - 10.0)
+                factors.append({
+                    "feature": "ML Normal Profile",
+                    "value": f"NORMAL ({((ml_confidence or 0)*100):.1f}%)",
+                    "impact": "-10",
+                    "why": "Transactional pattern consistent with typical non-syndicate retail activity"
+                })
+
+        if anomaly_score is not None and anomaly_score < 0:
+            score += 10.0
+            factors.append({
+                "feature": "Isolation Forest Anomaly",
+                "value": f"Score {anomaly_score:.3f}",
+                "impact": "+10",
+                "why": "Statistical anomaly detected compared to baseline transactional profiles"
+            })
+
         final_score = min(99.0, max(5.0, score))
         if final_score >= 80:
             level = "Critical"
@@ -143,20 +257,12 @@ class RiskEngine:
         else:
             level = "Low"
 
-        # Ensure top 5 factors
-        if len(factors) < 5:
-            factors.append({
-                "feature": "Wallet Counterparties",
-                "value": f"{int(features['distinct_counterparties'])} addresses",
-                "impact": "+5",
-                "why": "Counterparty graph interaction footprint"
-            })
-
         return {
-            "address": address,
-            "chain": chain,
-            "risk_score": round(final_score, 1),
-            "risk_level": level,
+            "score": round(final_score, 1),
+            "level": level,
+            "ml_role": ml_role,
+            "ml_confidence": ml_confidence,
+            "anomaly_score": anomaly_score,
             "features": features,
-            "top_factors": factors[:5]
+            "factors": factors
         }

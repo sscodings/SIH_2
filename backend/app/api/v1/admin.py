@@ -1,24 +1,33 @@
 import os
 import json
-from typing import Dict, Any
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from backend.app.db.database import get_db
-from backend.app.db.models import AuditLog, AppSetting
-from backend.app.core.audit import verify_audit_chain, log_audit_action
 
-router = APIRouter(prefix="/admin", tags=["Admin & Audit"])
+from app.db.database import get_db
+from app.db.models import AuditLog, AuditCheckpoint, AppSetting, User
+from app.core.audit import verify_audit_chain, log_audit_action
+from app.core.security import require_role
+
+router = APIRouter(prefix="/admin", tags=["Admin & Settings"])
+audit_router = APIRouter(prefix="/audit-log", tags=["Audit Log"])
 
 class SettingUpdateRequest(BaseModel):
     key: str
     value: str
 
-@router.get("/audit-log")
-def get_audit_log(limit: int = 100, db: Session = Depends(get_db)):
-    logs = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(limit).all()
+# Audit Log Endpoints (Supervisor & Admin)
+@audit_router.get("")
+def get_audit_log(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db)
+):
+    total = db.query(AuditLog).count()
+    logs = db.query(AuditLog).order_by(AuditLog.id.desc()).offset(skip).limit(limit).all()
     return {
-        "total": len(logs),
+        "total": total,
         "logs": [
             {
                 "id": l.id,
@@ -29,53 +38,69 @@ def get_audit_log(limit: int = 100, db: Session = Depends(get_db)):
                 "entity_id": l.entity_id,
                 "details": json.loads(l.details or "{}"),
                 "prev_hash": l.prev_hash,
-                "entry_hash": l.entry_hash
+                "entry_hash": l.entry_hash,
+                "signature": l.signature
             }
             for l in logs
         ]
     }
 
-@router.get("/audit-log/verify")
+@audit_router.get("/verify")
 def verify_audit_log_chain(db: Session = Depends(get_db)):
     return verify_audit_chain(db)
 
-audit_router = APIRouter(prefix="/audit-log", tags=["Audit Log"])
+@audit_router.get("/checkpoints")
+def get_audit_checkpoints(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db)
+):
+    total = db.query(AuditCheckpoint).count()
+    checkpoints = db.query(AuditCheckpoint).order_by(AuditCheckpoint.id.desc()).offset(skip).limit(limit).all()
+    return {
+        "total": total,
+        "checkpoints": [
+            {
+                "id": c.id,
+                "last_audit_id": c.last_audit_id,
+                "last_entry_hash": c.last_entry_hash,
+                "checkpoint_signature": c.checkpoint_signature,
+                "created_at": c.created_at.isoformat()
+            }
+            for c in checkpoints
+        ]
+    }
 
-@audit_router.get("")
-def get_audit_log_direct(limit: int = 100, db: Session = Depends(get_db)):
-    return get_audit_log(limit=limit, db=db)
-
-@audit_router.get("/verify")
-def verify_audit_log_chain_direct(db: Session = Depends(get_db)):
-    return verify_audit_chain(db)
-
-@router.post("/audit-log/tamper-test")
-def simulate_audit_tamper(db: Session = Depends(get_db)):
-    """
-    Intentionally modifies the details of an audit entry to test tamper detection.
-    """
-    last_log = db.query(AuditLog).order_by(AuditLog.id.desc()).first()
-    if not last_log:
-        raise HTTPException(status_code=400, detail="No audit entries to tamper with")
-    
-    last_log.details = json.dumps({"tampered": True, "illegal_override": "Modified by unauthorized actor"})
-    db.commit()
-    return {"status": "tampered", "tampered_entry_id": last_log.id, "message": "Modified entry details without updating hash chain. Verification will now report tampered."}
-
+# Admin-only Settings & Management Endpoints
 @router.get("/settings")
 def get_settings(db: Session = Depends(get_db)):
     settings_records = db.query(AppSetting).all()
     return {s.key: s.value for s in settings_records}
 
 @router.post("/settings")
-def update_setting(payload: SettingUpdateRequest, db: Session = Depends(get_db)):
+def update_setting(
+    payload: SettingUpdateRequest,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
     rec = db.query(AppSetting).filter(AppSetting.key == payload.key).first()
+    old_val = rec.value if rec else None
     if rec:
         rec.value = payload.value
     else:
         rec = AppSetting(key=payload.key, value=payload.value)
         db.add(rec)
     db.commit()
+
+    log_audit_action(
+        db=db,
+        user_email=current_user.email,
+        action="UPDATE_APP_SETTING",
+        entity_type="APP_SETTING",
+        entity_id=payload.key,
+        details={"key": payload.key, "old_value": old_val, "new_value": payload.value}
+    )
+
     return {"status": "updated", "key": payload.key, "value": payload.value}
 
 @router.get("/model-card")

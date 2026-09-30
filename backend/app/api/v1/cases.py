@@ -1,21 +1,24 @@
 import json
 import uuid
 import asyncio
+import random
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from backend.app.db.database import get_db
-from backend.app.db.models import (
+from app.db.database import get_db
+from app.db.models import (
     Case, CaseComplaint, Complaint, TraceJob, TraceSnapshot,
-    Attribution, FundsStatus, GraphNode, GraphEdge, CaseNote, Cluster, ClusterMember
+    Attribution, FundsStatus, GraphNode, GraphEdge, CaseNote, Cluster, ClusterMember, User
 )
-from backend.app.engines.tracer import TracingEngine
-from backend.app.engines.recommend import RecommendationEngine
-from backend.app.engines.risk import RiskEngine
-from backend.app.engines.typology import TypologyEngine
-from backend.app.core.audit import log_audit_action
+from app.engines.tracer import TracingEngine
+from app.engines.recommend import RecommendationEngine
+from app.engines.risk import RiskEngine
+from app.engines.typology import TypologyEngine
+from app.core.audit import log_audit_action
+from app.core.security import require_user
+from app.core.validators import validate_crypto_address
 
 router = APIRouter(prefix="/cases", tags=["Cases & Tracing"])
 
@@ -31,6 +34,7 @@ class CreateCaseRequest(BaseModel):
     priority: str = "High"
 
 class TraceRequest(BaseModel):
+    initial_amount_usd: Optional[float] = None
     max_depth: int = 6
     min_value_usd: float = 50.0
     max_nodes: int = 400
@@ -40,7 +44,6 @@ class TraceRequest(BaseModel):
 
 class NoteRequest(BaseModel):
     content: str
-    author_email: Optional[str] = "investigator@demo"
 
 class MergeCaseRequest(BaseModel):
     case_ids: List[int]
@@ -48,8 +51,8 @@ class MergeCaseRequest(BaseModel):
 
 @router.get("")
 def list_cases(
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     status: Optional[str] = None,
     chain: Optional[str] = None,
     priority: Optional[str] = None,
@@ -87,7 +90,18 @@ def list_cases(
     }
 
 @router.post("")
-def create_case(payload: CreateCaseRequest, db: Session = Depends(get_db)):
+def create_case(
+    payload: CreateCaseRequest,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
+    # Validate crypto address
+    if not validate_crypto_address(payload.primary_address, payload.primary_chain):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid crypto address format for chain '{payload.primary_chain}': '{payload.primary_address}'"
+        )
+
     case_count = db.query(Case).count() + 1
     case_number = f"CASE-2026-{case_count:04d}"
 
@@ -99,7 +113,7 @@ def create_case(payload: CreateCaseRequest, db: Session = Depends(get_db)):
         primary_address=payload.primary_address.strip(),
         status="Active",
         priority=payload.priority,
-        created_by="investigator@demo"
+        created_by=current_user.email
     )
     db.add(case)
     db.commit()
@@ -112,7 +126,7 @@ def create_case(payload: CreateCaseRequest, db: Session = Depends(get_db)):
 
     log_audit_action(
         db=db,
-        user_email="investigator@demo",
+        user_email=current_user.email,
         action="CREATE_CASE",
         entity_type="CASE",
         entity_id=str(case.id),
@@ -182,20 +196,27 @@ def get_case(id: int, db: Session = Depends(get_db)):
         } if funds else None
     }
 
-async def run_trace_task(case_id: int, job_id: str, params: dict):
-    from backend.app.db.database import SessionLocal
+async def run_trace_task(case_id: int, job_id: str, params: dict, actor_email: str):
+    from app.db.database import SessionLocal
     db: Session = SessionLocal()
     try:
         case = db.query(Case).filter(Case.id == case_id).first()
         if not case:
             return
 
+        # Calculate initial trace amount from linked complaints or caller param
+        linked_complaints = db.query(Complaint).join(CaseComplaint, CaseComplaint.complaint_id == Complaint.id).filter(CaseComplaint.case_id == case_id).all()
+        if linked_complaints:
+            initial_amt = sum(c.amount_lost_usd for c in linked_complaints)
+        else:
+            initial_amt = float(params.get("initial_amount_usd") or 1000.0)
+
         tracer = TracingEngine(
             db=db,
             case_id=case_id,
             start_address=case.primary_address,
             chain=case.primary_chain,
-            initial_amount_usd=134500.0,
+            initial_amount_usd=initial_amt,
             max_depth=params.get("max_depth", 6),
             min_value_usd=params.get("min_value_usd", 50.0),
             max_nodes=params.get("max_nodes", 400),
@@ -257,7 +278,7 @@ async def run_trace_task(case_id: int, job_id: str, params: dict):
 
         log_audit_action(
             db=db,
-            user_email="investigator@demo",
+            user_email=actor_email,
             action="EXECUTE_TRACE",
             entity_type="CASE",
             entity_id=str(case_id),
@@ -278,6 +299,7 @@ async def start_trace(
     id: int,
     payload: TraceRequest,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_user),
     db: Session = Depends(get_db)
 ):
     case = db.query(Case).filter(Case.id == id).first()
@@ -297,7 +319,7 @@ async def start_trace(
     db.add(trace_job)
     db.commit()
 
-    background_tasks.add_task(run_trace_task, id, job_id, payload.dict())
+    background_tasks.add_task(run_trace_task, id, job_id, payload.dict(), current_user.email)
 
     return {
         "status": "started",
@@ -307,13 +329,27 @@ async def start_trace(
     }
 
 @router.delete("/{id}/trace/{job_id}")
-def cancel_trace(id: int, job_id: str, db: Session = Depends(get_db)):
+def cancel_trace(
+    id: int,
+    job_id: str,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
     if job_id in active_trace_jobs:
         active_trace_jobs[job_id]["cancelled"] = True
     job_rec = db.query(TraceJob).filter(TraceJob.id == job_id).first()
     if job_rec:
         job_rec.status = "cancelled"
         db.commit()
+
+    log_audit_action(
+        db=db,
+        user_email=current_user.email,
+        action="CANCEL_TRACE",
+        entity_type="CASE",
+        entity_id=str(id),
+        details={"job_id": job_id}
+    )
     return {"status": "cancelled", "job_id": job_id}
 
 @router.get("/{id}/graph")
@@ -333,7 +369,10 @@ def get_case_graph(id: int, db: Session = Depends(get_db)):
             "funds_status": data.get("funds_status", {})
         }
 
-    # If no snapshot yet, return initial root node
+    # If no snapshot yet, return initial root node with value from linked complaints
+    linked_complaints = db.query(Complaint).join(CaseComplaint, CaseComplaint.complaint_id == Complaint.id).filter(CaseComplaint.case_id == id).all()
+    loss_val = sum(c.amount_lost_usd for c in linked_complaints) if linked_complaints else 0.0
+
     root_node = {
         "id": case.primary_address.lower(),
         "address": case.primary_address,
@@ -341,7 +380,7 @@ def get_case_graph(id: int, db: Session = Depends(get_db)):
         "entity_type": "Suspect/Collector",
         "label": f"Root Suspect ({case.primary_address[:8]}...)",
         "risk_level": "High",
-        "value_usd": 134500.0,
+        "value_usd": loss_val,
         "depth": 0
     }
     return {
@@ -396,15 +435,19 @@ def get_case_timeline(id: int, db: Session = Depends(get_db)):
         return {"timeline": []}
     data = json.loads(snapshot.snapshot_json)
     edges = data.get("edges", [])
-    # Sort chronological for Money Flow Replay
     sorted_edges = sorted(edges, key=lambda x: x.get("timestamp", ""))
     return {"timeline": sorted_edges}
 
 @router.post("/{id}/notes")
-def add_case_note(id: int, payload: NoteRequest, db: Session = Depends(get_db)):
+def add_case_note(
+    id: int,
+    payload: NoteRequest,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
     note = CaseNote(
         case_id=id,
-        author_email=payload.author_email,
+        author_email=current_user.email,
         content=payload.content,
         created_at=datetime.now(timezone.utc)
     )
@@ -414,7 +457,11 @@ def add_case_note(id: int, payload: NoteRequest, db: Session = Depends(get_db)):
     return {"status": "added", "note_id": note.id}
 
 @router.post("/merge")
-def merge_cases_into_syndicate(payload: MergeCaseRequest, db: Session = Depends(get_db)):
+def merge_cases_into_syndicate(
+    payload: MergeCaseRequest,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
     """
     Merges multiple complaints / cases into a unified Syndicate Case
     """
@@ -426,7 +473,7 @@ def merge_cases_into_syndicate(payload: MergeCaseRequest, db: Session = Depends(
         primary_address="TSyndicateCoreCollectorNexus77777",
         status="Active",
         priority="Critical",
-        created_by="supervisor@demo"
+        created_by=current_user.email
     )
     db.add(syndicate)
     db.commit()
@@ -441,7 +488,7 @@ def merge_cases_into_syndicate(payload: MergeCaseRequest, db: Session = Depends(
 
     log_audit_action(
         db=db,
-        user_email="supervisor@demo",
+        user_email=current_user.email,
         action="MERGE_SYNDICATE_CASE",
         entity_type="CASE",
         entity_id=str(syndicate.id),

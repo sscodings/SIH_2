@@ -1,19 +1,21 @@
 from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
-from backend.app.adapters.base import ChainAdapter, AddressSummary, Transfer, Transaction, TokenBalance
-from backend.app.db.database import SessionLocal
-from backend.app.db.models import Transfer as DBTransfer, Wallet as DBWallet
+from app.adapters.base import ChainAdapter, AddressSummary, Transfer, Transaction, TokenBalance
+from app.db.database import SessionLocal
+from app.db.models import Transfer as DBTransfer, Wallet as DBWallet
+from app.core.addresses import normalize
 
 class DemoAdapter(ChainAdapter):
     def __init__(self, chain_id: str):
-        self.chain_id = chain_id
+        self.chain_id = chain_id.lower()
 
     async def get_address_summary(self, address: str) -> AddressSummary:
         db: Session = SessionLocal()
         try:
+            norm_addr = normalize(self.chain_id, address)
             wallet = db.query(DBWallet).filter(
-                DBWallet.address.ilike(address),
+                DBWallet.address == norm_addr,
                 DBWallet.chain == self.chain_id
             ).first()
             if wallet:
@@ -45,21 +47,31 @@ class DemoAdapter(ChainAdapter):
         finally:
             db.close()
 
-    async def get_transfers(self, address: str, direction: str = "both", since: Optional[datetime] = None, limit: int = 200) -> List[Transfer]:
+    async def get_transfers(
+        self,
+        address: str,
+        direction: str = "both",
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        limit: int = 200
+    ) -> List[Transfer]:
         db: Session = SessionLocal()
         try:
+            norm_addr = normalize(self.chain_id, address)
             query = db.query(DBTransfer).filter(DBTransfer.chain == self.chain_id)
             if direction == "out":
-                query = query.filter(DBTransfer.from_address.ilike(address))
+                query = query.filter(DBTransfer.from_address == norm_addr)
             elif direction == "in":
-                query = query.filter(DBTransfer.to_address.ilike(address))
+                query = query.filter(DBTransfer.to_address == norm_addr)
             else:
                 query = query.filter(
-                    (DBTransfer.from_address.ilike(address)) | (DBTransfer.to_address.ilike(address))
+                    (DBTransfer.from_address == norm_addr) | (DBTransfer.to_address == norm_addr)
                 )
 
             if since:
                 query = query.filter(DBTransfer.timestamp >= since)
+            if until:
+                query = query.filter(DBTransfer.timestamp <= until)
 
             db_transfers = query.order_by(DBTransfer.timestamp.asc()).limit(limit).all()
             return [
@@ -74,7 +86,7 @@ class DemoAdapter(ChainAdapter):
                     amount=t.amount,
                     amount_usd=t.amount_usd,
                     is_contract_call=t.is_contract_call,
-                    method=t.method,
+                    method=t.method_name,
                     log_index=t.log_index
                 )
                 for t in db_transfers
@@ -87,7 +99,7 @@ class DemoAdapter(ChainAdapter):
         try:
             t = db.query(DBTransfer).filter(
                 DBTransfer.chain == self.chain_id,
-                DBTransfer.tx_hash.ilike(tx_hash)
+                DBTransfer.tx_hash == tx_hash
             ).first()
             if not t:
                 return None
@@ -106,8 +118,9 @@ class DemoAdapter(ChainAdapter):
     async def get_balance(self, address: str) -> List[TokenBalance]:
         db: Session = SessionLocal()
         try:
+            norm_addr = normalize(self.chain_id, address)
             wallet = db.query(DBWallet).filter(
-                DBWallet.address.ilike(address),
+                DBWallet.address == norm_addr,
                 DBWallet.chain == self.chain_id
             ).first()
             bal = wallet.balance_usd if wallet else 0.0

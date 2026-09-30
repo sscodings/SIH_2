@@ -3,14 +3,16 @@ import json
 import random
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
-from backend.app.db.database import engine, SessionLocal, Base
-from backend.app.db.models import (
+from app.db.database import engine, SessionLocal, Base
+from app.db.models import (
     User, Complaint, Case, CaseComplaint, Wallet, Transfer,
     Label, LabelSource, Entity, EntityAddress, Cluster, ClusterMember,
     Watchlist, Alert, FreezeRequest, Report, CaseNote, Webhook, ApiKey, AuditLog, AppSetting
 )
-from backend.app.core.security import get_password_hash
-from backend.app.core.audit import log_audit_action
+from app.core.security import get_password_hash
+from app.core.audit import log_audit_action
+from app.core.config import settings
+from app.core.addresses import normalize
 
 # Set fixed seed for deterministic reproducible data
 random.seed(42)
@@ -19,6 +21,9 @@ def seed_database():
     print("Dropping and recreating database tables...")
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+
+    if getattr(settings, "CHAINNETRA_MODE", "DEMO").upper() == "LIVE":
+        raise RuntimeError("Security Policy Violation: Refusing to seed default demo users/passwords when CHAINNETRA_MODE is LIVE.")
 
     db: Session = SessionLocal()
     try:
@@ -82,25 +87,25 @@ def seed_database():
         swaplab = db.query(Entity).filter(Entity.name == "SwapLab Router").first()
 
         entity_addrs = [
-            EntityAddress(entity_id=demox.id, address="TXDemoxHotWalletPrimary88888888888", chain="tron", address_type="hot_wallet"),
-            EntityAddress(entity_id=demox.id, address="TXDemoxDepositVault9999999999999", chain="tron", address_type="deposit"),
-            EntityAddress(entity_id=novatrade.id, address="0xNovaTradeBscHotWallet7777777777", chain="bsc", address_type="hot_wallet"),
-            EntityAddress(entity_id=zenith.id, address="0xZenithArbitrumColdVault666666666", chain="arbitrum", address_type="hot_wallet"),
-            EntityAddress(entity_id=veilmix.id, address="bc1qveilmixprivacytumbler00000000", chain="bitcoin", address_type="contract"),
-            EntityAddress(entity_id=swiftbridge.id, address="TXSwiftBridgeTronPortal5555555555", chain="tron", address_type="contract"),
-            EntityAddress(entity_id=swaplab.id, address="0xSwapLabEthRouterV344444444444444", chain="ethereum", address_type="router")
+            EntityAddress(entity_id=demox.id, address=normalize("tron", "TXDemoxHotWalletPrimary88888888888"), chain="tron", address_type="hot_wallet"),
+            EntityAddress(entity_id=demox.id, address=normalize("tron", "TXDemoxDepositVault9999999999999"), chain="tron", address_type="deposit"),
+            EntityAddress(entity_id=novatrade.id, address=normalize("bsc", "0xNovaTradeBscHotWallet7777777777"), chain="bsc", address_type="hot_wallet"),
+            EntityAddress(entity_id=zenith.id, address=normalize("arbitrum", "0xZenithArbitrumColdVault666666666"), chain="arbitrum", address_type="hot_wallet"),
+            EntityAddress(entity_id=veilmix.id, address=normalize("bitcoin", "bc1qveilmixprivacytumbler00000000"), chain="bitcoin", address_type="contract"),
+            EntityAddress(entity_id=swiftbridge.id, address=normalize("tron", "TXSwiftBridgeTronPortal5555555555"), chain="tron", address_type="contract"),
+            EntityAddress(entity_id=swaplab.id, address=normalize("ethereum", "0xSwapLabEthRouterV344444444444444"), chain="ethereum", address_type="router")
         ]
         db.add_all(entity_addrs)
 
         # Labels
         labels = [
-            Label(address="TXDemoxHotWalletPrimary88888888888", chain="tron", entity="DemoX Exchange", category="VASP Hot Wallet", source="VASP Verified Registry", confidence=0.99),
-            Label(address="TXDemoxDepositVault9999999999999", chain="tron", entity="DemoX Exchange", category="VASP Deposit Address", source="VASP Verified Registry", confidence=0.96),
-            Label(address="0xNovaTradeBscHotWallet7777777777", chain="bsc", entity="NovaTrade", category="VASP Hot Wallet", source="VASP Verified Registry", confidence=0.98),
-            Label(address="0xZenithArbitrumColdVault666666666", chain="arbitrum", entity="Zenith OTC", category="VASP Deposit Address", source="Verified LEA Intel", confidence=0.95),
-            Label(address="bc1qveilmixprivacytumbler00000000", chain="bitcoin", entity="VeilMix", category="Mixer", source="Verified LEA Intel", confidence=0.96),
-            Label(address="TXSwiftBridgeTronPortal5555555555", chain="tron", entity="SwiftBridge", category="Bridge", source="VASP Verified Registry", confidence=0.95),
-            Label(address="0xSwapLabEthRouterV344444444444444", chain="ethereum", entity="SwapLab Router", category="DEX Router", source="VASP Verified Registry", confidence=0.95)
+            Label(address=normalize("tron", "TXDemoxHotWalletPrimary88888888888"), chain="tron", entity="DemoX Exchange", category="VASP Hot Wallet", source="VASP Verified Registry", confidence=0.99),
+            Label(address=normalize("tron", "TXDemoxDepositVault9999999999999"), chain="tron", entity="DemoX Exchange", category="VASP Deposit Address", source="VASP Verified Registry", confidence=0.96),
+            Label(address=normalize("bsc", "0xNovaTradeBscHotWallet7777777777"), chain="bsc", entity="NovaTrade", category="VASP Hot Wallet", source="VASP Verified Registry", confidence=0.98),
+            Label(address=normalize("arbitrum", "0xZenithArbitrumColdVault666666666"), chain="arbitrum", entity="Zenith OTC", category="VASP Deposit Address", source="Verified LEA Intel", confidence=0.95),
+            Label(address=normalize("bitcoin", "bc1qveilmixprivacytumbler00000000"), chain="bitcoin", entity="VeilMix", category="Mixer", source="Verified LEA Intel", confidence=0.96),
+            Label(address=normalize("tron", "TXSwiftBridgeTronPortal5555555555"), chain="tron", entity="SwiftBridge", category="Bridge", source="VASP Verified Registry", confidence=0.95),
+            Label(address=normalize("ethereum", "0xSwapLabEthRouterV344444444444444"), chain="ethereum", entity="SwapLab Router", category="DEX Router", source="VASP Verified Registry", confidence=0.95)
         ]
         db.add_all(labels)
         db.commit()

@@ -5,25 +5,28 @@ import io
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
-from backend.app.db.models import Complaint, Case, CaseComplaint
-from backend.app.core.config import settings
+from app.db.models import Complaint, Case, CaseComplaint
+from app.core.config import settings
+from app.core.validators import validate_crypto_address, verify_tron_address, verify_bitcoin_address, verify_evm_address
 
-TRON_REGEX = re.compile(r"^T[1-9A-HJ-NP-za-km-z]{33}$")
-BTC_REGEX = re.compile(r"^(1[a-km-zA-HJ-NP-Z1-9]{25,34}|3[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[a-z0-9]{11,70})$")
-EVM_REGEX = re.compile(r"^0x[a-fA-F0-9]{40}$")
+MAX_CSV_ROWS = 5000
+MAX_CSV_BYTES = 5 * 1024 * 1024  # 5MB
+
+class IngestionValidationError(Exception):
+    pass
 
 class IngestionService:
     @staticmethod
     def detect_chain_and_validate(address: str) -> Dict[str, Any]:
         address = address.strip()
-        if TRON_REGEX.match(address):
-            return {"valid": True, "chain": "tron", "standard": "TRC-20 / Base58", "address": address}
-        if BTC_REGEX.match(address):
-            return {"valid": True, "chain": "bitcoin", "standard": "Bitcoin (Legacy/SegWit/Bech32)", "address": address}
-        if EVM_REGEX.match(address):
-            return {"valid": True, "chain": "ethereum", "supported_evm_chains": ["ethereum", "bsc", "polygon", "arbitrum"], "standard": "EVM (ERC-20 / BEP-20)", "address": address}
+        if verify_tron_address(address):
+            return {"valid": True, "chain": "tron", "standard": "TRC-20 / Base58Check", "address": address}
+        if verify_bitcoin_address(address):
+            return {"valid": True, "chain": "bitcoin", "standard": "Bitcoin (Base58Check / Bech32)", "address": address}
+        if verify_evm_address(address):
+            return {"valid": True, "chain": "ethereum", "supported_evm_chains": ["ethereum", "bsc", "polygon", "arbitrum"], "standard": "EVM (EIP-55 Checksum)", "address": address}
         
-        return {"valid": False, "chain": "unknown", "error": "Address does not conform to Tron, Bitcoin, or EVM formats", "address": address}
+        return {"valid": False, "chain": "unknown", "error": "Address does not conform to Tron (Base58Check), Bitcoin (Bech32/Base58Check), or EVM formats", "address": address}
 
     @staticmethod
     def ingest_single_complaint(
@@ -36,15 +39,21 @@ class IngestionService:
         source: str = "NCRP",
         complaint_number: Optional[str] = None
     ) -> Complaint:
+        if not reported_wallets:
+            raise IngestionValidationError("At least one reported wallet address is required")
+
+        # Validate addresses
+        for w in reported_wallets:
+            det = IngestionService.detect_chain_and_validate(w)
+            if not det["valid"]:
+                raise IngestionValidationError(f"Invalid cryptocurrency address '{w}': {det.get('error')}")
+
         if not complaint_number:
             c_count = db.query(Complaint).count() + 1001
             complaint_number = f"{source}-2026-{c_count:06d}"
 
-        chain = "tron"
-        if reported_wallets:
-            detection = IngestionService.detect_chain_and_validate(reported_wallets[0])
-            if detection["valid"]:
-                chain = detection["chain"]
+        detection = IngestionService.detect_chain_and_validate(reported_wallets[0])
+        chain = detection.get("chain", "tron")
 
         amount_lost_usd = round(amount_lost_inr / settings.USD_INR, 2)
         priority = "Critical" if amount_lost_inr > 2000000 else ("High" if amount_lost_inr > 700000 else "Medium")
@@ -77,6 +86,9 @@ class IngestionService:
 
     @staticmethod
     def process_csv_upload(db: Session, file_content: str) -> Dict[str, Any]:
+        if len(file_content.encode('utf-8')) > MAX_CSV_BYTES:
+            raise IngestionValidationError("CSV file exceeds maximum allowed size of 5MB")
+
         reader = csv.DictReader(io.StringIO(file_content))
         total_rows = 0
         valid_rows = 0
@@ -85,6 +97,10 @@ class IngestionService:
 
         for idx, row in enumerate(reader, start=1):
             total_rows += 1
+            if total_rows > MAX_CSV_ROWS:
+                errors.append(f"CSV exceeded maximum limit of {MAX_CSV_ROWS} rows. Remaining rows ignored.")
+                break
+
             wallet = row.get("wallet", row.get("address", "")).strip()
             amount_str = row.get("amount_inr", row.get("amount", "0")).replace(",", "").strip()
 
@@ -98,26 +114,31 @@ class IngestionService:
                 continue
 
             try:
-                amt = float(amount_str)
+                amt = float(amount_str) if amount_str else 0.0
             except ValueError:
-                amt = 50000.0
+                amt = 0.0
 
-            cmp = IngestionService.ingest_single_complaint(
+            victim = row.get("victim_name", f"Victim #{idx}").strip()
+            state = row.get("victim_state", "Maharashtra").strip()
+            fraud = row.get("fraud_type", "Investment Scam").strip()
+            src = row.get("source", "Bulk CSV").strip()
+
+            c = IngestionService.ingest_single_complaint(
                 db=db,
-                victim_name=row.get("victim_name", f"Victim {idx}"),
-                victim_state=row.get("victim_state", "Maharashtra"),
-                fraud_type=row.get("fraud_type", "Investment Scam"),
+                victim_name=victim,
+                victim_state=state,
+                fraud_type=fraud,
                 reported_wallets=[wallet],
                 amount_lost_inr=amt,
-                source="Bulk"
+                source=src
             )
-            created_complaints.append(cmp.complaint_number)
+            created_complaints.append(c.complaint_number)
             valid_rows += 1
 
         return {
             "total_rows": total_rows,
             "valid_rows": valid_rows,
-            "error_count": len(errors),
-            "errors": errors[:10],
-            "created_complaints": created_complaints
+            "created_count": len(created_complaints),
+            "errors": errors[:20],
+            "complaint_numbers": created_complaints[:10]
         }

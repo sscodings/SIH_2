@@ -1,8 +1,11 @@
 {
   "model_name": "ChainNetra Wallet Role & Anomaly Classifier",
   "training_data_type": "Deterministic Synthetic Multi-Chain Forensic Patterns",
-  "training_samples": 2000,
-  "accuracy": 1.0,
+  "training_samples": 1875,
+  "test_samples": 625,
+  "train_accuracy": 0.9989,
+  "held_out_test_accuracy": 0.992,
+  "accuracy": 0.992,
   "classes": [
     "collector",
     "intermediary",
@@ -12,19 +15,24 @@
     "vasp_deposit",
     "victim"
   ],
+  "feature_order": [
+    "fan_in",
+    "fan_out",
+    "total_in_usd",
+    "total_out_usd",
+    "pass_through_ratio",
+    "round_amount_ratio",
+    "age_days",
+    "burstiness",
+    "mixer_exposure",
+    "bridge_exposure",
+    "dormant_flag"
+  ],
+  "feature_count": 11,
   "confusion_matrix": [
     [
-      53,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      46,
+      98,
+      3,
       0,
       0,
       0,
@@ -33,8 +41,17 @@
     ],
     [
       0,
+      96,
       0,
-      46,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      57,
       0,
       0,
       0,
@@ -44,7 +61,7 @@
       0,
       0,
       0,
-      99,
+      161,
       0,
       0,
       0
@@ -54,8 +71,17 @@
       0,
       0,
       0,
-      42,
+      61,
       0,
+      0
+    ],
+    [
+      2,
+      0,
+      0,
+      0,
+      0,
+      55,
       0
     ],
     [
@@ -64,31 +90,23 @@
       0,
       0,
       0,
-      48,
-      0
-    ],
-    [
       0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      66
+      92
     ]
   ],
   "feature_importances": {
-    "fan_in": 0.1296,
-    "fan_out": 0.0529,
-    "total_in_usd": 0.095,
-    "total_out_usd": 0.1256,
-    "pass_through_ratio": 0.1582,
-    "round_amount_ratio": 0.0694,
-    "age_days": 0.0695,
-    "burstiness": 0.111,
-    "mixer_exposure": 0.0236,
-    "bridge_exposure": 0.1653,
+    "fan_in": 0.1794,
+    "fan_out": 0.0947,
+    "total_in_usd": 0.1166,
+    "total_out_usd": 0.1547,
+    "pass_through_ratio": 0.1325,
+    "round_amount_ratio": 0.0803,
+    "age_days": 0.0873,
+    "burstiness": 0.1226,
+    "mixer_exposure": 0.0231,
+    "bridge_exposure": 0.0088,
     "dormant_flag": 0.0
   },
-  "trained_at": "2026-09-29T23:54:34.415371+00:00"
+  "caveat": "Trained on deterministic synthetic forensic patterns. Accuracy does NOT reflect real-world adversarial evasion or unobserved novel obfuscation patterns. Intended solely for investigative triage support.",
+  "trained_at": "2026-09-30T06:25:09.553616+00:00"
 }

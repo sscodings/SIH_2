@@ -1,7 +1,7 @@
 import hashlib
 from typing import Dict, Any
 from sqlalchemy.orm import Session
-from backend.app.db.models import Report, TraceSnapshot, Case
+from app.db.models import Report, TraceSnapshot, Case
 
 class EvidenceService:
     @staticmethod

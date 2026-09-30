@@ -1,7 +1,7 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
-from backend.app.db.database import Base
+from app.db.database import Base
 
 class User(Base):
     __tablename__ = "users"
@@ -9,8 +9,26 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
-    role = Column(String(50), default="Investigator")  # Investigator, Supervisor, Admin
+    role = Column(String(50), default="investigator")  # investigator, supervisor, admin
     is_active = Column(Boolean, default=True)
+    failed_login_attempts = Column(Integer, default=0)
+    locked_until = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class RevokedToken(Base):
+    __tablename__ = "revoked_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    jti = Column(String(100), unique=True, index=True, nullable=False)
+    revoked_at = Column(DateTime, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+
+class UserRefreshToken(Base):
+    __tablename__ = "user_refresh_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    token_hash = Column(String(255), unique=True, index=True, nullable=False)
+    is_revoked = Column(Boolean, default=False)
+    expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class Complaint(Base):
@@ -41,7 +59,7 @@ class Case(Base):
     status = Column(String(50), default="Active")  # Active, In Review, Frozen, Closed
     priority = Column(String(50), default="High")
     time_to_vasp_seconds = Column(Float, nullable=True)
-    created_by = Column(String(255), default="investigator@demo")
+    created_by = Column(String(255), default="system", nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -59,21 +77,15 @@ class Wallet(Base):
     chain = Column(String(50), index=True, nullable=False)
     first_seen = Column(DateTime, nullable=True)
     last_seen = Column(DateTime, nullable=True)
-    tx_count = Column(Integer, default=0)
-    total_in_usd = Column(Float, default=0.0)
-    total_out_usd = Column(Float, default=0.0)
     balance_usd = Column(Float, default=0.0)
-    risk_score = Column(Float, default=10.0)
+    total_received_usd = Column(Float, default=0.0)
+    total_sent_usd = Column(Float, default=0.0)
+    tx_count = Column(Integer, default=0)
+    risk_score = Column(Float, default=15.0)  # 0 to 100
     risk_level = Column(String(50), default="Low")  # Low, Medium, High, Critical
-    entity_type = Column(String(100), default="Unknown")
-    label = Column(String(255), nullable=True)
-    cluster_id = Column(Integer, nullable=True)
-    notes = Column(Text, default="")
-    tags = Column(Text, default="[]")  # JSON list
-
-    __table_args__ = (
-        Index("idx_wallet_addr_chain", "address", "chain", unique=True),
-    )
+    category = Column(String(100), default="Unknown")  # Mule, Collector, Intermediary, Peel, VASP Deposit, Mixer
+    is_monitored = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class Transfer(Base):
     __tablename__ = "transfers"
@@ -81,20 +93,20 @@ class Transfer(Base):
     chain = Column(String(50), index=True, nullable=False)
     tx_hash = Column(String(255), index=True, nullable=False)
     block_number = Column(Integer, default=0)
-    timestamp = Column(DateTime, index=True, nullable=False)
+    timestamp = Column(DateTime, nullable=False, index=True)
     from_address = Column(String(255), index=True, nullable=False)
     to_address = Column(String(255), index=True, nullable=False)
     token = Column(String(50), default="USDT")
-    amount = Column(Float, default=0.0)
-    amount_usd = Column(Float, default=0.0)
+    amount = Column(Float, nullable=False)
+    amount_usd = Column(Float, nullable=False)
     is_contract_call = Column(Boolean, default=False)
-    method = Column(String(100), nullable=True)
+    method_name = Column(String(100), nullable=True)
     log_index = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     __table_args__ = (
-        Index("idx_from_timestamp", "from_address", "timestamp"),
-        Index("idx_to_timestamp", "to_address", "timestamp"),
-        Index("idx_chain_txhash", "chain", "tx_hash"),
+        Index("ix_transfers_chain_from_ts", "chain", "from_address", "timestamp"),
+        Index("ix_transfers_chain_to_ts", "chain", "to_address", "timestamp"),
     )
 
 class Label(Base):
@@ -103,27 +115,33 @@ class Label(Base):
     address = Column(String(255), index=True, nullable=False)
     chain = Column(String(50), index=True, nullable=False)
     entity = Column(String(255), nullable=False)
-    category = Column(String(100), nullable=False)  # VASP, Mixer, Bridge, DEX, Scam, Darknet
-    source = Column(String(100), default="Internal")
-    confidence = Column(Float, default=0.9)
+    category = Column(String(100), default="VASP")  # VASP, Mixer, Bridge, Scam, High-Risk
+    source = Column(String(100), default="Manual")  # In-House, FIU-IND, OpenSanctions, Chainalysis
+    confidence = Column(Float, default=0.90)  # 0.0 to 1.0
+    verified_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_labels_chain_address", "chain", "address"),
+    )
 
 class LabelSource(Base):
     __tablename__ = "label_sources"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False)
-    reliability_weight = Column(Float, default=0.85)  # 0 to 1
+    weight = Column(Float, default=0.85)  # Mathematical weight W_label
     description = Column(String(255), default="")
 
 class Entity(Base):
     __tablename__ = "entities"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, nullable=False)
-    category = Column(String(100), nullable=False)  # VASP, Mixer, Bridge, DEX
-    jurisdiction = Column(String(100), default="Seychelles")
-    compliance_contact = Column(String(255), default="compliance@example.com")
-    response_sla = Column(String(100), default="< 4 hours")
+    category = Column(String(100), default="VASP")  # VASP, Mixer, Bridge, DEX, Payment Gateway
+    jurisdiction = Column(String(100), default="Global")
+    compliance_contact = Column(String(255), default="")
+    response_sla = Column(String(100), default="24 Hours")
     description = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class EntityAddress(Base):
     __tablename__ = "entity_addresses"
@@ -131,7 +149,11 @@ class EntityAddress(Base):
     entity_id = Column(Integer, ForeignKey("entities.id"), index=True)
     address = Column(String(255), index=True, nullable=False)
     chain = Column(String(50), nullable=False)
-    address_type = Column(String(50), default="hot_wallet")  # hot_wallet, deposit, contract, router
+    address_type = Column(String(50), default="Hot Wallet")  # Hot Wallet, Cold Wallet, Deposit Sweeper, Router Contract
+
+    __table_args__ = (
+        Index("ix_entity_addresses_chain_address", "chain", "address"),
+    )
 
 class Cluster(Base):
     __tablename__ = "clusters"
@@ -149,6 +171,13 @@ class ClusterMember(Base):
     address = Column(String(255), index=True, nullable=False)
     chain = Column(String(50), nullable=False)
     rule_formed = Column(String(100), default="same_sweep_target")
+    confidence = Column(Float, default=0.85)
+    evidence_tx_hashes = Column(Text, default="[]")
+
+    __table_args__ = (
+        Index("ix_cluster_members_chain_address", "chain", "address"),
+        UniqueConstraint("cluster_id", "chain", "address", name="uq_cluster_members_id_chain_addr"),
+    )
 
 class TraceJob(Base):
     __tablename__ = "trace_jobs"
@@ -218,25 +247,41 @@ class FundsStatus(Base):
     mixer_amount_usd = Column(Float, default=0.0)
     dormant_amount_usd = Column(Float, default=0.0)
     unaccounted_usd = Column(Float, default=0.0)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-class RiskScore(Base):
-    __tablename__ = "risk_scores"
+class CrossChainBridgeEvent(Base):
+    __tablename__ = "cross_chain_bridge_events"
     id = Column(Integer, primary_key=True, index=True)
-    case_id = Column(Integer, ForeignKey("cases.id"), nullable=True)
-    wallet_address = Column(String(255), index=True, nullable=False)
-    score = Column(Float, default=10.0)
-    risk_level = Column(String(50), default="Low")
-    anomaly_score = Column(Float, default=0.1)
-    top_factors = Column(Text, default="[]")  # JSON
+    case_id = Column(Integer, ForeignKey("cases.id"), index=True)
+    source_chain = Column(String(50), nullable=False)
+    source_tx_hash = Column(String(255), nullable=False)
+    source_wallet = Column(String(255), nullable=False)
+    destination_chain = Column(String(50), nullable=False)
+    destination_tx_hash = Column(String(255), nullable=False)
+    destination_wallet = Column(String(255), nullable=False)
+    bridge_name = Column(String(100), default="Cross-Chain Router")
+    amount = Column(Float, default=0.0)
+    token = Column(String(50), default="USDT")
+    confidence = Column(Float, default=0.88)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+
+class MixerEvent(Base):
+    __tablename__ = "mixer_events"
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("cases.id"), index=True)
+    chain = Column(String(50), nullable=False)
+    mixer_name = Column(String(100), default="VeilMix / Privacy Tumbler")
+    deposit_address = Column(String(255), nullable=False)
+    deposit_tx_hash = Column(String(255), nullable=False)
+    amount_usd = Column(Float, default=0.0)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    candidates = Column(Text, default="[]")  # JSON list of candidate withdrawals with probabilities
 
 class TypologyMatch(Base):
     __tablename__ = "typology_matches"
     id = Column(Integer, primary_key=True, index=True)
     case_id = Column(Integer, ForeignKey("cases.id"), index=True)
-    typology_name = Column(String(100), nullable=False)
-    match_percentage = Column(Float, default=85.0)
-    description = Column(Text, default="")
+    typology_name = Column(String(100), nullable=False)  # Pig-Butchering, Task Fraud, Sextortion, Ransomware
+    confidence_score = Column(Float, default=0.85)
     indicators = Column(Text, default="[]")  # JSON
 
 class Recommendation(Base):
@@ -293,10 +338,11 @@ class FreezeRequest(Base):
     victim_loss_inr = Column(Float, default=0.0)
     victim_loss_usd = Column(Float, default=0.0)
     tx_hashes = Column(Text, default="[]")  # JSON
-    status = Column(String(50), default="Draft")  # Draft, Pending Approval, Sent, Acknowledged, Frozen, Rejected
+    status = Column(String(50), default="Draft")  # Draft, Pending Approval, Approved, Sent, Acknowledged, Frozen, Rejected
     legal_order_ref = Column(String(255), default="Cr.No 402/2026 U/S 66D IT Act & 420 IPC")
-    created_by = Column(String(255), default="investigator@demo")
+    created_by = Column(String(255), default="system", nullable=False)
     approved_by = Column(String(255), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
     sent_at = Column(DateTime, nullable=True)
     acknowledged_at = Column(DateTime, nullable=True)
     frozen_amount_usd = Column(Float, default=0.0)
@@ -312,7 +358,7 @@ class Report(Base):
     pdf_path = Column(String(500), nullable=False)
     sha256_hash = Column(String(64), nullable=False, index=True)
     snapshot_sha256 = Column(String(64), nullable=False)
-    generated_by = Column(String(255), default="investigator@demo")
+    generated_by = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class CaseNote(Base):
@@ -330,7 +376,7 @@ class Webhook(Base):
     target_url = Column(String(500), nullable=False)
     events = Column(Text, default='["trace_complete", "vasp_found", "freeze_alert"]')  # JSON list
     is_active = Column(Boolean, default=True)
-    secret = Column(String(255), default="netra_wh_secret_xyz")
+    secret = Column(String(255), nullable=False)  # Stored hashed secret
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class WebhookDelivery(Base):
@@ -339,38 +385,47 @@ class WebhookDelivery(Base):
     webhook_id = Column(Integer, ForeignKey("webhooks.id"), index=True)
     event_type = Column(String(100), nullable=False)
     payload = Column(Text, default="{}")
-    status_code = Column(Integer, default=200)
-    latency_ms = Column(Float, default=120.0)
-    success = Column(Boolean, default=True)
+    status_code = Column(Integer, default=0)
+    response_body = Column(Text, default="")
+    latency_ms = Column(Integer, default=0)
+    success = Column(Boolean, default=False)
+    attempt_count = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class ApiKey(Base):
     __tablename__ = "api_keys"
     id = Column(Integer, primary_key=True, index=True)
-    key_hash = Column(String(64), nullable=False, index=True)
-    key_prefix = Column(String(10), nullable=False)
-    name = Column(String(255), nullable=False)
-    user_email = Column(String(255), nullable=False)
-    scopes = Column(Text, default='["read", "ingest"]')  # JSON
-    last_used_at = Column(DateTime, nullable=True)
+    name = Column(String(100), nullable=False)
+    key_prefix = Column(String(16), nullable=False)
+    hashed_key = Column(String(255), nullable=False)
+    role = Column(String(50), default="investigator")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
 
 class AuditLog(Base):
-    __tablename__ = "audit_log"
+    __tablename__ = "audit_logs"
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     user_email = Column(String(255), nullable=False)
     action = Column(String(100), nullable=False)
     entity_type = Column(String(100), nullable=False)
-    entity_id = Column(String(255), nullable=True)
-    details = Column(Text, default="{}")
-    prev_hash = Column(String(64), nullable=False)
-    entry_hash = Column(String(64), nullable=False, index=True)
+    entity_id = Column(String(100), nullable=True)
+    details = Column(Text, default="{}")  # JSON
+    prev_hash = Column(String(64), nullable=False, unique=True)
+    entry_hash = Column(String(64), nullable=False)
+    signature = Column(String(128), nullable=True)  # HMAC-SHA256 signature with AUDIT_HMAC_KEY
+
+class AuditCheckpoint(Base):
+    __tablename__ = "audit_checkpoints"
+    id = Column(Integer, primary_key=True, index=True)
+    last_audit_id = Column(Integer, nullable=False)
+    last_entry_hash = Column(String(64), nullable=False)
+    checkpoint_signature = Column(String(128), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class AppSetting(Base):
-    __tablename__ = "settings"
-    id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(100), unique=True, index=True, nullable=False)
+    __tablename__ = "app_settings"
+    key = Column(String(100), primary_key=True)
     value = Column(Text, nullable=False)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    description = Column(String(255), default="")

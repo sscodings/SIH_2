@@ -8,11 +8,15 @@ services:
     container_name: chainnetra-backend
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - CHAINNETRA_MODE=DEMO
-      - SECRET_KEY=netra-super-secret-jwt-forensic-key-2026-sih-prototype
-      - DATABASE_URL=sqlite:///./chainnetra.db
-      - USD_INR_RATE=83.50
+      - CHAINNETRA_MODE=${CHAINNETRA_MODE:-DEMO}
+      - SECRET_KEY=${SECRET_KEY:-change-me}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-change-me}
+      - AUDIT_HMAC_KEY=${AUDIT_HMAC_KEY:-change-me}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./chainnetra.db}
+      - USD_INR=${USD_INR:-83.50}
     volumes:
       - ./data:/app/data
     restart: unless-stopped
