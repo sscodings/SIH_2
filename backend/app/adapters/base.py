@@ -6,6 +6,18 @@ class AdapterError(Exception):
     """Raised when live blockchain adapter encounters an unrecoverable failure (network, rate limit, timeout, malformed payload, pricing failure)."""
     pass
 
+class RateLimited(AdapterError):
+    """Raised when a provider's rate limit is hit (e.g. 429 Too Many Requests or Max rate limit reached)."""
+    pass
+
+class ChainUnsupported(AdapterError):
+    """Raised when no working provider is mapped/available for the requested chain."""
+    pass
+
+class QuotaExhausted(AdapterError):
+    """Raised when provider request budget or daily/monthly quota is exhausted."""
+    pass
+
 class TokenBalance(BaseModel):
     token: str
     symbol: str

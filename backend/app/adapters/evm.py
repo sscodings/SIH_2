@@ -1,10 +1,14 @@
 import asyncio
 import logging
-import httpx
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
-from app.adapters.base import ChainAdapter, AddressSummary, Transfer, Transaction, TokenBalance, AdapterError
+import httpx
+from app.adapters.base import (
+    ChainAdapter, AddressSummary, Transfer, Transaction, TokenBalance,
+    AdapterError, RateLimited, ChainUnsupported, QuotaExhausted
+)
 from app.core.config import settings
+from app.adapters.http import HttpClientManager
 from app.services.pricing import PricingService
 
 logger = logging.getLogger(__name__)
@@ -38,79 +42,110 @@ class EvmAdapter(ChainAdapter):
         self.native_symbol = NATIVE_SYMBOLS.get(self.chain_id, "ETH")
         self.api_key = settings.ETHERSCAN_API_KEY
         self.base_url = "https://api.etherscan.io/v2/api"
+        self.http_mgr = HttpClientManager.get_instance()
+
+    def _check_provider_support(self):
+        # Section 6: Free Etherscan does not cover BSC; map bsc to "none" -> raises ChainUnsupported
+        provider = self.http_mgr.get_provider_for_chain(self.chain_id)
+        if provider == "none":
+            raise ChainUnsupported(f"Chain '{self.chain_id}' is unsupported by available providers")
+        return provider
 
     async def _fetch_with_retry(
         self,
-        client: httpx.AsyncClient,
+        client: Optional[httpx.AsyncClient],
         params: Dict[str, Any],
         max_retries: int = 3
     ) -> Dict[str, Any]:
-        params = {**params, "chainid": self.numeric_chain_id}
+        self._check_provider_support()
+        
+        request_params = {**params, "chainid": self.numeric_chain_id}
         if self.api_key:
-            params["apikey"] = self.api_key
+            request_params["apikey"] = self.api_key
 
-        last_error = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                res = await client.get(self.base_url, params=params, timeout=settings.ADAPTER_TIMEOUT)
-                if res.status_code == 429:
-                    await asyncio.sleep(0.3 * (2 ** attempt))
-                    continue
-                if res.status_code >= 400:
-                    raise AdapterError(f"Etherscan V2 HTTP {res.status_code}: {res.text}")
-                data = res.json()
-                if not isinstance(data, dict):
-                    raise AdapterError(f"Malformed response from Etherscan V2: {data}")
-                
-                # Etherscan error handling
-                status = data.get("status")
-                msg = str(data.get("message", ""))
-                # "No transactions found" returns status="0" and message="No transactions found", which is not an error
-                if status == "0" and "no transactions found" not in msg.lower() and "no records found" not in msg.lower():
-                    if "rate limit" in str(data.get("result", "")).lower() or "max rate limit" in msg.lower():
-                        await asyncio.sleep(0.3 * (2 ** attempt))
-                        continue
-                    raise AdapterError(f"Etherscan V2 API error: {data.get('result') or msg}")
+        resp = await self.http_mgr.request(
+            provider="etherscan",
+            method="GET",
+            url=self.base_url,
+            params=request_params,
+            client=client,
+            max_retries=max_retries
+        )
 
-                return data
-            except Exception as e:
-                last_error = e
-                if isinstance(e, AdapterError) and attempt == max_retries:
-                    raise
-                if attempt < max_retries:
-                    await asyncio.sleep(0.2 * (2 ** (attempt - 1)))
-                else:
-                    if isinstance(e, AdapterError):
-                        raise
-                    raise AdapterError(f"Etherscan V2 request failed after {max_retries} attempts: {str(e)}") from e
-        raise AdapterError(f"Etherscan V2 request failed: {last_error}")
+        try:
+            data = resp.json()
+        except Exception as e:
+            raise AdapterError(f"Malformed JSON response from Etherscan V2: {resp.text}") from e
 
-    async def get_address_summary(self, address: str) -> AddressSummary:
-        async with httpx.AsyncClient() as client:
-            native_price = await PricingService.get_price_usd(self.native_symbol, client)
-            
-            # Fetch native balance
-            params = {
-                "module": "account",
-                "action": "balance",
-                "address": address,
-                "tag": "latest"
-            }
-            data = await self._fetch_with_retry(client, params)
-            raw_bal = float(data.get("result", 0) or 0)
-            bal_native = raw_bal / 1e18
-            bal_usd = bal_native * native_price
+        if not isinstance(data, dict):
+            raise AdapterError(f"Malformed response structure from Etherscan V2: {data}")
 
-            return AddressSummary(
-                address=address,
-                chain=self.chain_id,
-                total_received=0.0,
-                total_received_usd=0.0,
-                total_sent=0.0,
-                total_sent_usd=0.0,
-                balance_usd=round(bal_usd, 2),
-                tx_count=1
-            )
+        status = str(data.get("status", ""))
+        msg = str(data.get("message", ""))
+        result_str = str(data.get("result", ""))
+
+        # Check explicit error messages
+        if "max rate limit reached" in result_str.lower() or "max rate limit" in msg.lower():
+            raise RateLimited(f"Etherscan V2 error: {result_str or msg}")
+        if "free api access is not supported for this chain" in result_str.lower() or "free api access is not supported" in msg.lower():
+            raise ChainUnsupported(f"Etherscan V2 error: {result_str or msg}")
+        if "community free api limit reached" in result_str.lower() or "community free api limit reached" in msg.lower():
+            raise QuotaExhausted(f"Etherscan V2 error: {result_str or msg}")
+
+        # "No transactions found" / "No records found" returns status="0", which is not an error
+        if status == "0" and "no transactions found" not in msg.lower() and "no records found" not in msg.lower():
+            raise AdapterError(f"Etherscan V2 API error: {result_str or msg}")
+
+        return data
+
+    async def get_address_summary(self, address: str, client: Optional[httpx.AsyncClient] = None) -> AddressSummary:
+        self._check_provider_support()
+        native_price = await PricingService.get_price_usd(self.native_symbol, client)
+
+        params = {
+            "module": "account",
+            "action": "balance",
+            "address": address,
+            "tag": "latest"
+        }
+        data = await self._fetch_with_retry(client, params)
+        raw_bal = float(data.get("result", 0) or 0)
+        bal_native = raw_bal / 1e18
+        bal_usd = bal_native * native_price
+
+        # Fetch tx count
+        tx_count_params = {
+            "module": "proxy",
+            "action": "eth_getTransactionCount",
+            "address": address,
+            "tag": "latest"
+        }
+        tx_count_data = await self._fetch_with_retry(client, tx_count_params)
+        tx_count_hex = tx_count_data.get("result", "0x0")
+        tx_count = int(tx_count_hex, 16) if isinstance(tx_count_hex, str) and tx_count_hex.startswith("0x") else 0
+
+        # Sample recent transfers to calculate sent/received totals
+        transfers = await self.get_transfers(address, limit=50, client=client)
+        total_rec = sum(t.amount_usd for t in transfers if t.to_address.lower() == address.lower())
+        total_sent = sum(t.amount_usd for t in transfers if t.from_address.lower() == address.lower())
+        is_trunc = any(t.truncated for t in transfers)
+
+        first_seen = min([t.timestamp for t in transfers], default=None)
+        last_seen = max([t.timestamp for t in transfers], default=None)
+
+        return AddressSummary(
+            address=address,
+            chain=self.chain_id,
+            total_received=total_rec / native_price if native_price > 0 else 0.0,
+            total_received_usd=total_rec,
+            total_sent=total_sent / native_price if native_price > 0 else 0.0,
+            total_sent_usd=total_sent,
+            balance_usd=bal_usd,
+            tx_count=tx_count,
+            first_seen=first_seen,
+            last_seen=last_seen,
+            truncated=is_trunc
+        )
 
     async def get_transfers(
         self,
@@ -118,127 +153,176 @@ class EvmAdapter(ChainAdapter):
         direction: str = "both",
         since: Optional[datetime] = None,
         until: Optional[datetime] = None,
-        limit: int = 100
+        limit: int = 100,
+        client: Optional[httpx.AsyncClient] = None
     ) -> List[Transfer]:
+        self._check_provider_support()
         results: List[Transfer] = []
         is_truncated = False
         addr_lower = address.lower()
 
-        async with httpx.AsyncClient() as client:
-            native_price = await PricingService.get_price_usd(self.native_symbol, client)
+        native_price = await PricingService.get_price_usd(self.native_symbol, client)
 
-            # Actions to query: tokentx (ERC20), txlist (native), txlistinternal (internal)
-            actions = [
-                ("tokentx", "ERC20"),
-                ("txlist", "NATIVE"),
-                ("txlistinternal", "INTERNAL")
-            ]
+        actions = [
+            ("tokentx", "ERC20"),
+            ("txlist", "NATIVE"),
+            ("txlistinternal", "INTERNAL")
+        ]
 
-            for action_name, action_type in actions:
-                for page in range(1, settings.ADAPTER_MAX_PAGES + 1):
-                    params = {
-                        "module": "account",
-                        "action": action_name,
-                        "address": address,
-                        "startblock": 0,
-                        "endblock": 99999999,
-                        "page": page,
-                        "offset": min(limit, 100),
-                        "sort": "desc"
-                    }
-                    data = await self._fetch_with_retry(client, params)
-                    items = data.get("result", [])
-                    if not isinstance(items, list) or len(items) == 0:
-                        break
+        max_pages = getattr(settings, "ADAPTER_MAX_PAGES", 5)
+        max_transfers = getattr(settings, "ADAPTER_MAX_TRANSFERS_PER_ADDRESS", 500)
 
-                    for it in items:
-                        from_addr = it.get("from", "")
-                        to_addr = it.get("to", "")
-                        from_lower = from_addr.lower()
-                        to_lower = to_addr.lower()
+        for action_name, action_type in actions:
+            if len(results) >= max_transfers:
+                is_truncated = True
+                break
 
-                        # Direction filter
-                        if direction == "out" and from_lower != addr_lower:
-                            continue
-                        if direction == "in" and to_lower != addr_lower:
-                            continue
+            for page in range(1, max_pages + 1):
+                params = {
+                    "module": "account",
+                    "action": action_name,
+                    "address": address,
+                    "startblock": 0,
+                    "endblock": 99999999,
+                    "page": page,
+                    "offset": min(limit, 100),
+                    "sort": "desc"
+                }
+                data = await self._fetch_with_retry(client, params)
+                items = data.get("result", [])
+                if not isinstance(items, list) or len(items) == 0:
+                    break
 
-                        # Timestamp filter
-                        ts_val = int(it.get("timeStamp", 0) or 0)
-                        ts = datetime.fromtimestamp(ts_val, tz=timezone.utc)
-                        if since and ts < since.replace(tzinfo=timezone.utc if since.tzinfo is None else since.tzinfo):
-                            continue
-                        if until and ts > until.replace(tzinfo=timezone.utc if until.tzinfo is None else until.tzinfo):
-                            continue
+                for it in items:
+                    from_addr = it.get("from", "")
+                    to_addr = it.get("to", "")
+                    from_lower = from_addr.lower()
+                    to_lower = to_addr.lower()
 
-                        if action_type == "ERC20":
-                            symbol = it.get("tokenSymbol", "USDT").upper()
-                            decimals = int(it.get("tokenDecimal", 18) or 18)
-                            raw_val = float(it.get("value", 0) or 0)
-                            amt = raw_val / (10 ** decimals)
-                            token_price = 1.0 if symbol in ["USDT", "USDC", "DAI"] else await PricingService.get_price_usd(symbol, client)
-                            amt_usd = amt * token_price
-                            is_contract = True
-                        else:
-                            symbol = self.native_symbol
-                            raw_val = float(it.get("value", 0) or 0)
-                            amt = raw_val / 1e18
-                            amt_usd = amt * native_price
-                            is_contract = action_type == "INTERNAL"
+                    if direction == "out" and from_lower != addr_lower:
+                        continue
+                    if direction == "in" and to_lower != addr_lower:
+                        continue
 
-                        results.append(Transfer(
-                            chain=self.chain_id,
-                            tx_hash=it.get("hash", ""),
-                            block_number=int(it.get("blockNumber", 0) or 0),
-                            timestamp=ts,
-                            from_address=from_addr,
-                            to_address=to_addr,
-                            token=symbol,
-                            amount=amt,
-                            amount_usd=round(amt_usd, 2),
-                            is_contract_call=is_contract,
-                            log_index=int(it.get("logIndex", 0) or 0)
-                        ))
+                    ts_val = int(it.get("timeStamp", 0) or 0)
+                    ts = datetime.fromtimestamp(ts_val, tz=timezone.utc)
+                    if since and ts < since.replace(tzinfo=timezone.utc if since.tzinfo is None else since.tzinfo):
+                        continue
+                    if until and ts > until.replace(tzinfo=timezone.utc if until.tzinfo is None else until.tzinfo):
+                        continue
 
-                    if len(items) < min(limit, 100):
-                        break
-                    if page == settings.ADAPTER_MAX_PAGES:
+                    if action_type == "ERC20":
+                        symbol = it.get("tokenSymbol", "USDT").upper()
+                        decimals = int(it.get("tokenDecimal", 18) or 18)
+                        raw_val = float(it.get("value", 0) or 0)
+                        amt = raw_val / (10 ** decimals)
+                        token_price = 1.0 if symbol in ["USDT", "USDC", "DAI"] else await PricingService.get_price_usd(symbol, client)
+                        amt_usd = amt * token_price
+                    else:
+                        symbol = self.native_symbol
+                        raw_val = float(it.get("value", 0) or 0)
+                        amt = raw_val / 1e18
+                        amt_usd = amt * native_price
+
+                    results.append(Transfer(
+                        chain=self.chain_id,
+                        tx_hash=it.get("hash", ""),
+                        block_number=int(it.get("blockNumber", 0) or 0),
+                        timestamp=ts,
+                        from_address=from_addr,
+                        to_address=to_addr,
+                        token=symbol,
+                        amount=amt,
+                        amount_usd=amt_usd,
+                        is_contract_call=(action_type != "NATIVE"),
+                        method=it.get("functionName"),
+                        truncated=False
+                    ))
+
+                    if len(results) >= max_transfers:
                         is_truncated = True
+                        break
 
-        if is_truncated and results:
-            results[-1].truncated = True
+                if is_truncated or len(items) < min(limit, 100):
+                    break
+
+                if page == max_pages:
+                    is_truncated = True
+
+        if is_truncated:
+            for t in results:
+                t.truncated = True
 
         return results
 
-    async def get_transaction(self, tx_hash: str) -> Optional[Transaction]:
-        async with httpx.AsyncClient() as client:
-            params = {
-                "module": "proxy",
-                "action": "eth_getTransactionByHash",
-                "txhash": tx_hash
-            }
-            data = await self._fetch_with_retry(client, params)
-            it = data.get("result")
-            if not it or not isinstance(it, dict):
-                return None
-            
-            raw_val = int(it.get("value", "0x0"), 16) if isinstance(it.get("value"), str) else 0
-            val_eth = raw_val / 1e18
-            
-            return Transaction(
-                chain=self.chain_id,
-                tx_hash=tx_hash,
-                block_number=int(it.get("blockNumber", "0x0"), 16) if isinstance(it.get("blockNumber"), str) else 0,
-                timestamp=datetime.now(timezone.utc),
-                from_address=it.get("from", ""),
-                to_address=it.get("to", ""),
-                value=val_eth,
-                status="success"
-            )
+    async def get_transaction(self, tx_hash: str, client: Optional[httpx.AsyncClient] = None) -> Optional[Transaction]:
+        self._check_provider_support()
+        params = {
+            "module": "proxy",
+            "action": "eth_getTransactionByHash",
+            "txhash": tx_hash
+        }
+        data = await self._fetch_with_retry(client, params)
+        tx_data = data.get("result")
+        if not tx_data or not isinstance(tx_data, dict):
+            return None
 
-    async def get_balance(self, address: str) -> List[TokenBalance]:
-        summary = await self.get_address_summary(address)
-        return [TokenBalance(token=self.native_symbol, symbol=self.native_symbol, balance=0.0, balance_usd=summary.balance_usd)]
+        val_hex = tx_data.get("value", "0x0")
+        val_eth = int(val_hex, 16) / 1e18 if isinstance(val_hex, str) and val_hex.startswith("0x") else 0.0
+
+        receipt_params = {
+            "module": "proxy",
+            "action": "eth_getTransactionReceipt",
+            "txhash": tx_hash
+        }
+        receipt_data = await self._fetch_with_retry(client, receipt_params)
+        receipt = receipt_data.get("result", {})
+        status = "success" if receipt.get("status") == "0x1" else "failed"
+
+        gas_used = int(receipt.get("gasUsed", "0x0"), 16) if isinstance(receipt.get("gasUsed"), str) else 0
+        gas_price = int(tx_data.get("gasPrice", "0x0"), 16) if isinstance(tx_data.get("gasPrice"), str) else 0
+        fee_native = (gas_used * gas_price) / 1e18
+        native_price = await PricingService.get_price_usd(self.native_symbol, client)
+
+        blk_hex = tx_data.get("blockNumber", "0x0")
+        blk_num = int(blk_hex, 16) if isinstance(blk_hex, str) and blk_hex.startswith("0x") else 0
+
+        return Transaction(
+            chain=self.chain_id,
+            tx_hash=tx_hash,
+            block_number=blk_num,
+            timestamp=datetime.now(timezone.utc),
+            from_address=tx_data.get("from", ""),
+            to_address=tx_data.get("to", ""),
+            value=val_eth,
+            fee_usd=fee_native * native_price,
+            status=status
+        )
+
+    async def get_balance(self, address: str, client: Optional[httpx.AsyncClient] = None) -> List[TokenBalance]:
+        self._check_provider_support()
+        summary = await self.get_address_summary(address, client=client)
+        native_price = await PricingService.get_price_usd(self.native_symbol, client)
+        bal_native = summary.balance_usd / native_price if native_price > 0 else 0.0
+        return [
+            TokenBalance(
+                token=self.native_symbol,
+                symbol=self.native_symbol,
+                balance=bal_native,
+                balance_usd=summary.balance_usd
+            )
+        ]
 
     def normalize(self, raw: dict) -> Transfer:
-        return Transfer(**raw)
+        val = float(raw.get("value", 0)) / 1e18
+        return Transfer(
+            chain=self.chain_id,
+            tx_hash=raw.get("hash", ""),
+            block_number=int(raw.get("blockNumber", 0)),
+            timestamp=datetime.fromtimestamp(int(raw.get("timeStamp", 0)), tz=timezone.utc),
+            from_address=raw.get("from", ""),
+            to_address=raw.get("to", ""),
+            token=raw.get("tokenSymbol", self.native_symbol),
+            amount=val,
+            amount_usd=val * 3000.0
+        )

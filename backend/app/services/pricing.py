@@ -1,9 +1,10 @@
 import time
 import logging
+from typing import Dict, Tuple, Optional, List
 import httpx
-from typing import Dict, Tuple, Optional
 from app.core.config import settings
-from app.adapters.base import AdapterError
+from app.adapters.base import AdapterError, QuotaExhausted
+from app.adapters.http import HttpClientManager
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ STABLECOINS = {"USDT", "USDC", "DAI", "BUSD", "FDUSD", "TUSD", "USDD"}
 COINGECKO_ID_MAP = {
     "BTC": "bitcoin",
     "BITCOIN": "bitcoin",
+    "XBT": "bitcoin",
     "ETH": "ethereum",
     "ETHEREUM": "ethereum",
     "TRX": "tron",
@@ -29,7 +31,8 @@ COINGECKO_ID_MAP = {
 
 class PricingService:
     _cache: Dict[str, Tuple[float, float]] = {}  # symbol -> (price_usd, expiry_timestamp)
-    CACHE_TTL_SECONDS = 60.0
+    CACHE_TTL_SECONDS = 300.0  # 5 minutes cache for price stability
+    monthly_usage_count = 0
 
     @classmethod
     def get_cached_price(cls, symbol: str) -> Optional[float]:
@@ -41,19 +44,24 @@ class PricingService:
         return None
 
     @classmethod
-    def set_cached_price(cls, symbol: str, price: float):
+    def set_cached_price(cls, symbol: str, price: float, ttl: Optional[float] = None):
         symbol_upper = symbol.upper()
-        cls._cache[symbol_upper] = (price, time.time() + cls.CACHE_TTL_SECONDS)
+        cache_ttl = ttl if ttl is not None else cls.CACHE_TTL_SECONDS
+        cls._cache[symbol_upper] = (price, time.time() + cache_ttl)
 
     @classmethod
     def clear_cache(cls):
         cls._cache.clear()
 
     @classmethod
+    def reset_monthly_usage(cls):
+        cls.monthly_usage_count = 0
+
+    @classmethod
     async def get_price_usd(cls, symbol: str, client: Optional[httpx.AsyncClient] = None) -> float:
         symbol_upper = symbol.upper()
         
-        # 1. Stablecoin constant peg
+        # 1. Stablecoin constant 1.0 peg (0 API calls)
         if symbol_upper in STABLECOINS:
             return 1.0
 
@@ -62,24 +70,36 @@ class PricingService:
         if cached is not None:
             return cached
 
-        # 3. Resolve CoinGecko coin id
+        # 3. Check monthly budget cap (binding 9000 requests)
+        budget = getattr(settings, "COINGECKO_MONTHLY_BUDGET", 9000)
+        if cls.monthly_usage_count >= budget:
+            raise QuotaExhausted(f"CoinGecko monthly API budget exhausted ({budget} requests reached)")
+
+        # 4. Resolve CoinGecko coin id
         coin_id = COINGECKO_ID_MAP.get(symbol_upper)
         if not coin_id:
             raise AdapterError(f"Unsupported asset for pricing lookup: {symbol}")
 
         url = f"{settings.COINGECKO_BASE_URL.rstrip('/')}/simple/price"
         params = {"ids": coin_id, "vs_currencies": "usd"}
+        api_key = getattr(settings, "COINGECKO_API_KEY", "")
+        if api_key:
+            params["x_cg_demo_api_key"] = api_key
 
+        http_mgr = HttpClientManager.get_instance()
         try:
-            if client:
-                res = await client.get(url, params=params, timeout=settings.ADAPTER_TIMEOUT)
-                res.raise_for_status()
-                data = res.json()
-            else:
-                async with httpx.AsyncClient(timeout=settings.ADAPTER_TIMEOUT) as local_client:
-                    res = await local_client.get(url, params=params)
-                    res.raise_for_status()
-                    data = res.json()
+            # Route via centralized http manager for rate limiting & token bucket
+            resp = await http_mgr.request(
+                provider="coingecko",
+                method="GET",
+                url=url,
+                params=params,
+                client=client,
+                use_cache=True,
+                cache_ttl=cls.CACHE_TTL_SECONDS
+            )
+            cls.monthly_usage_count += 1
+            data = resp.json()
 
             price = data.get(coin_id, {}).get("usd")
             if price is None or not isinstance(price, (int, float)) or price <= 0:

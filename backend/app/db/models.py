@@ -115,14 +115,26 @@ class Label(Base):
     address = Column(String(255), index=True, nullable=False)
     chain = Column(String(50), index=True, nullable=False)
     entity = Column(String(255), nullable=False)
-    category = Column(String(100), default="VASP")  # VASP, Mixer, Bridge, Scam, High-Risk
-    source = Column(String(100), default="Manual")  # In-House, FIU-IND, OpenSanctions, Chainalysis
+    category = Column(String(100), default="VASP")  # VASP, Mixer, Bridge, Scam, High-Risk, sanctioned
+    source = Column(String(100), default="Manual")  # In-House, FIU-IND, OFAC, Exchange CSV
+    source_url = Column(String(500), nullable=True)
+    license = Column(String(255), nullable=True)
+    weight_tier = Column(String(50), default="unverified_official")
+    wallet_type = Column(String(50), default="unknown")  # hot, cold, unknown, deposit
+    raw_wallet_type = Column(String(255), nullable=True)
+    valid_from = Column(DateTime, nullable=True)
+    valid_to = Column(DateTime, nullable=True)
+    superseded_by = Column(String(255), nullable=True)
+    record_status = Column(String(50), default="active")  # active, pending, revoked, inactive
+    snapshot_date = Column(String(100), nullable=True)
     confidence = Column(Float, default=0.90)  # 0.0 to 1.0
     verified_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=True)
+    fetched_at = Column(DateTime, default=datetime.datetime.utcnow)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     __table_args__ = (
         Index("ix_labels_chain_address", "chain", "address"),
+        Index("ix_labels_status", "record_status"),
     )
 
 class LabelSource(Base):
@@ -141,6 +153,14 @@ class Entity(Base):
     compliance_contact = Column(String(255), default="")
     response_sla = Column(String(100), default="24 Hours")
     description = Column(Text, default="")
+    registered_in_india = Column(Boolean, default=False)
+    as_of = Column(String(50), nullable=True)
+    trade_names = Column(Text, default="[]")  # JSON list of aliases
+    entity_type = Column(String(100), nullable=True)
+    registration_date = Column(String(100), nullable=True)
+    nodal_officer_email = Column(String(255), nullable=True)
+    nodal_officer_phone = Column(String(100), nullable=True)
+    source = Column(String(255), default="")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class EntityAddress(Base):

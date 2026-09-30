@@ -80,49 +80,32 @@ def verify_bech32(s: str) -> bool:
     polymod = bech32_polymod(bech32_hrp_expand(hrp) + data_values)
     return polymod in (1, 0x2bc830a3)
 
+from app.core.addresses import validate_address, validate_tx_hash, is_evm_chain
+
 def verify_evm_address(address: str) -> bool:
-    if not isinstance(address, str):
-        return False
-    if not re.match(r"^0x[a-fA-F0-9]{40}$", address):
-        return False
-    return True
+    res = validate_address(address, chain_hint="ethereum")
+    return res["valid"] and res["family"] == "evm"
 
 def verify_tron_address(address: str) -> bool:
-    if not isinstance(address, str) or not address.startswith("T"):
-        return False
-    if len(address) == 34:
-        if verify_base58check(address, expected_prefix=b"\x41"):
-            return True
-        if re.match(r"^T[1-9A-HJ-NP-Za-km-z]{33}$", address):
-            return True
-    return False
+    res = validate_address(address, chain_hint="tron")
+    return res["valid"] and res["family"] == "tron"
 
 def verify_bitcoin_address(address: str) -> bool:
-    if not isinstance(address, str):
-        return False
-    if address.startswith("bc1"):
-        if verify_bech32(address):
-            return True
-        if re.match(r"^bc1[a-z0-9]{11,70}$", address):
-            return True
-    elif address.startswith("1") or address.startswith("3"):
-        if verify_base58check(address):
-            return True
-        if re.match(r"^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$", address):
-            return True
-    return False
+    res = validate_address(address, chain_hint="bitcoin")
+    return res["valid"] and res["family"] == "bitcoin"
 
 def validate_crypto_address(address: str, chain: str) -> bool:
     if not address or not isinstance(address, str):
         return False
     addr = address.strip()
     chain_norm = (chain or "").lower().strip()
-    
+    res = validate_address(addr, chain_hint=chain_norm)
+    if not res["valid"]:
+        return False
     if chain_norm in ("tron", "trx"):
-        return verify_tron_address(addr)
-    elif chain_norm in ("ethereum", "eth", "bsc", "arbitrum", "polygon", "evm"):
-        return verify_evm_address(addr)
+        return res["family"] == "tron"
+    elif is_evm_chain(chain_norm) or chain_norm == "evm":
+        return res["family"] == "evm"
     elif chain_norm in ("bitcoin", "btc"):
-        return verify_bitcoin_address(addr)
-    else:
-        return verify_evm_address(addr) or verify_tron_address(addr) or verify_bitcoin_address(addr)
+        return res["family"] == "bitcoin"
+    return True

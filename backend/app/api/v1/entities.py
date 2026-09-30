@@ -90,13 +90,20 @@ def add_label(
             detail=f"Invalid address format for chain '{chain_clean}': '{addr_clean}'"
         )
 
+    # Analyst labels start as pending until supervisor or admin approves
+    status = "active" if current_user.role in ("admin", "supervisor") else "pending"
+    weight_tier = "analyst_approved" if status == "active" else "unverified_official"
+
     label = Label(
         address=addr_clean,
         chain=chain_clean,
         entity=payload.entity,
         category=payload.category,
-        source=payload.source,
-        confidence=payload.confidence
+        source=payload.source or f"Analyst ({current_user.email})",
+        confidence=payload.confidence,
+        record_status=status,
+        weight_tier=weight_tier,
+        wallet_type="unknown"
     )
     db.add(label)
     db.commit()
@@ -108,10 +115,37 @@ def add_label(
         action="CREATE_LABEL",
         entity_type="LABEL",
         entity_id=str(label.id),
-        details={"address": label.address, "entity": label.entity, "chain": label.chain}
+        details={"address": label.address, "entity": label.entity, "chain": label.chain, "status": status}
     )
 
-    return {"status": "created", "id": label.id}
+    return {"status": "created" if status == "active" else "pending_approval", "id": label.id, "record_status": status}
+
+@router.post("/labels/{label_id}/approve")
+def approve_label(
+    label_id: int,
+    current_user: User = Depends(require_role("supervisor", "admin")),
+    db: Session = Depends(get_db)
+):
+    label = db.query(Label).filter(Label.id == label_id).first()
+    if not label:
+        raise HTTPException(status_code=404, detail="Label not found")
+
+    label.record_status = "active"
+    label.weight_tier = "analyst_approved"
+    label.verified_at = datetime.utcnow()
+    db.commit()
+    db.refresh(label)
+
+    log_audit_action(
+        db=db,
+        user_email=current_user.email,
+        action="APPROVE_LABEL",
+        entity_type="LABEL",
+        entity_id=str(label.id),
+        details={"address": label.address, "entity": label.entity, "approved_by": current_user.email}
+    )
+
+    return {"status": "approved", "id": label.id, "record_status": "active"}
 
 @router.post("/labels/bulk-import")
 async def bulk_import_labels(

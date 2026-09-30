@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.core.config import settings
+from app.core.security import require_role
 
 router = APIRouter(prefix="", tags=["System"])
 
@@ -62,3 +63,9 @@ def providers_status():
             }
         ]
     }
+
+@router.get("/metrics")
+def system_metrics(current_user = Depends(require_role("admin"))):
+    """Admin-only metrics endpoint for provider calls, errors, latency, and throttle waits."""
+    from app.adapters.http import HttpClientManager
+    return HttpClientManager.get_instance().get_metrics()

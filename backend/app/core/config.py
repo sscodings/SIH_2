@@ -46,8 +46,22 @@ class Settings(BaseSettings):
     ETHERSCAN_API_KEY: Optional[str] = ""
     BLOCKSTREAM_API_URL: str = "https://blockstream.info/api"
     COINGECKO_BASE_URL: str = "https://api.coingecko.com/api/v3"
+    COINGECKO_API_KEY: Optional[str] = ""
     ADAPTER_MAX_PAGES: int = 5
+    ADAPTER_MAX_TRANSFERS_PER_ADDRESS: int = 500
     ADAPTER_TIMEOUT: float = 10.0
+
+    # Provider rate limits & budgets (provider_limits.md)
+    ETHERSCAN_RPS: float = 3.0
+    TRONGRID_QPS: float = 10.0
+    COINGECKO_RPM: float = 60.0
+    COINGECKO_MONTHLY_BUDGET: int = 9000
+
+    # Redis & Queue
+    REDIS_URL: str = "redis://localhost:6379/0"
+    WATCHLIST_MONITOR_INTERVAL_SECONDS: int = 300
+    AUTO_CASE_MIN_PRIORITY: str = "High"
+    PII_ENCRYPTION_KEY: Optional[str] = None
     
     # Audit Checkpoint Interval (Entries)
     AUDIT_CHECKPOINT_INTERVAL: int = 50
