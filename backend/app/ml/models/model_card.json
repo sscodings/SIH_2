@@ -1,0 +1,94 @@
+{
+  "model_name": "ChainNetra Wallet Role & Anomaly Classifier",
+  "training_data_type": "Deterministic Synthetic Multi-Chain Forensic Patterns",
+  "training_samples": 2000,
+  "accuracy": 1.0,
+  "classes": [
+    "collector",
+    "intermediary",
+    "mixer",
+    "normal",
+    "peel",
+    "vasp_deposit",
+    "victim"
+  ],
+  "confusion_matrix": [
+    [
+      53,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      46,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      46,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      99,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      42,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      48,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      66
+    ]
+  ],
+  "feature_importances": {
+    "fan_in": 0.1296,
+    "fan_out": 0.0529,
+    "total_in_usd": 0.095,
+    "total_out_usd": 0.1256,
+    "pass_through_ratio": 0.1582,
+    "round_amount_ratio": 0.0694,
+    "age_days": 0.0695,
+    "burstiness": 0.111,
+    "mixer_exposure": 0.0236,
+    "bridge_exposure": 0.1653,
+    "dormant_flag": 0.0
+  },
+  "trained_at": "2026-09-29T23:54:34.415371+00:00"
+}

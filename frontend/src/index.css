@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-ink: #070B14;
+    --bg-panel: #0D1424;
+    --bg-raised: #121B30;
+    --border-hairline: #1F2B47;
+    --color-amber: #FFB020;
+    --color-cyan: #22D3EE;
+    --color-coral: #FF5D5D;
+    --color-mint: #3DDC97;
+    --color-violet: #8B7CFF;
+  }
+
+  body {
+    background-color: #070B14;
+    color: #E6ECFF;
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #070B14;
+}
+::-webkit-scrollbar-thumb {
+  background: #1F2B47;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #FFB020;
+}
+
+/* Forensic Background Grid */
+.forensic-grid {
+  background-size: 24px 24px;
+  background-image: 
+    linear-gradient(to right, rgba(31, 43, 71, 0.3) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(31, 43, 71, 0.3) 1px, transparent 1px);
+}
+
+.forensic-noise {
+  background-image: radial-gradient(rgba(34, 211, 238, 0.04) 1px, transparent 0);
+  background-size: 16px 16px;
+}
+
+/* Radar Sweep Animation */
+@keyframes radar-sweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.radar-sweep-element {
+  background: conic-gradient(from 0deg, rgba(255, 176, 32, 0.35) 0deg, rgba(255, 176, 32, 0) 65deg, transparent 360deg);
+  animation: radar-sweep 2.4s linear infinite;
+  transform-origin: center center;
+}
+
+/* Radar Pulse Rings */
+@keyframes radar-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.radar-ring {
+  animation: radar-pulse 2.2s cubic-bezier(0.2, 0.8, 0.4, 1) infinite;
+}
+
+/* Glossary Tooltip dotted underline */
+.glossary-term {
+  border-bottom: 1.5px dotted #FFB020;
+  cursor: help;
+  transition: color 0.15s ease;
+}
+.glossary-term:hover {
+  color: #FFB020;
+}
+
+/* Evidence Board paper feel */
+.evidence-card {
+  background: linear-gradient(145deg, #0f182c, #0d1424);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Red thread connecting lines */
+.red-thread {
+  stroke: #FF5D5D;
+  stroke-width: 2;
+  stroke-dasharray: 4 2;
+  filter: drop-shadow(0 0 3px rgba(255, 93, 93, 0.6));
+}

@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="100%" height="100%" style="background:#070B14; font-family:'Space Grotesk', sans-serif;">
+  <defs>
+    <linearGradient id="panelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0D1424" />
+      <stop offset="100%" stop-color="#121B30" />
+    </linearGradient>
+    <linearGradient id="amberGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFB020" />
+      <stop offset="100%" stop-color="#FF5D5D" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Title & Banner -->
+  <text x="50" y="55" fill="#FFB020" font-size="28" font-weight="bold" letter-spacing="1.5">CHAINNETRA ARCHITECTURE</text>
+  <text x="50" y="85" fill="#8A97B8" font-size="14">Real-Time Law Enforcement Cryptocurrency Forensics &amp; Automated VASP Attribution</text>
+
+  <!-- Layer 1: Ingestion & Feeds -->
+  <rect x="50" y="120" width="240" height="620" rx="10" fill="url(#panelGrad)" stroke="#1F2B47" stroke-width="1.5"/>
+  <rect x="50" y="120" width="240" height="42" rx="10" fill="#121B30" stroke="#1F2B47" stroke-width="1"/>
+  <text x="70" y="147" fill="#FFB020" font-size="14" font-weight="bold">1. INGESTION &amp; CONNECTORS</text>
+
+  <rect x="70" y="180" width="200" height="75" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="85" y="208" fill="#E6ECFF" font-size="13" font-weight="bold">NCRP Mock Feed</text>
+  <text x="85" y="230" fill="#8A97B8" font-size="11">National Cybercrime Portal</text>
+
+  <rect x="70" y="275" width="200" height="75" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="85" y="303" fill="#E6ECFF" font-size="13" font-weight="bold">SAHYOG Mock Feed</text>
+  <text x="85" y="325" fill="#8A97B8" font-size="11">Inter-Agency Intelligence</text>
+
+  <rect x="70" y="370" width="200" height="75" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="85" y="398" fill="#E6ECFF" font-size="13" font-weight="bold">CSV Bulk Ingestion</text>
+  <text x="85" y="420" fill="#8A97B8" font-size="11">Schema Validation &amp; Dedupe</text>
+
+  <rect x="70" y="465" width="200" height="75" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="85" y="493" fill="#E6ECFF" font-size="13" font-weight="bold">REST / Webhooks</text>
+  <text x="85" y="515" fill="#8A97B8" font-size="11">Automated Dispatcher</text>
+
+  <rect x="70" y="560" width="200" height="150" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="85" y="588" fill="#22D3EE" font-size="13" font-weight="bold">Address Validation</text>
+  <text x="85" y="612" fill="#8A97B8" font-size="11">• Tron (Base58 T...)</text>
+  <text x="85" y="632" fill="#8A97B8" font-size="11">• EVM (0x + 40 hex)</text>
+  <text x="85" y="652" fill="#8A97B8" font-size="11">• Bitcoin (Bech32 / Legacy)</text>
+  <text x="85" y="682" fill="#3DDC97" font-size="11" font-weight="bold">Chain Auto-Detection</text>
+
+  <!-- Connectors from Layer 1 to Layer 2 -->
+  <path d="M 290 350 L 330 350" stroke="#FFB020" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- Layer 2: Core Forensic Engine -->
+  <rect x="330" y="120" width="310" height="620" rx="10" fill="url(#panelGrad)" stroke="#1F2B47" stroke-width="1.5"/>
+  <rect x="330" y="120" width="310" height="42" rx="10" fill="#121B30" stroke="#1F2B47" stroke-width="1"/>
+  <text x="350" y="147" fill="#22D3EE" font-size="14" font-weight="bold">2. CORE FORENSIC ENGINE</text>
+
+  <rect x="350" y="180" width="270" height="110" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="365" y="208" fill="#FFB020" font-size="13" font-weight="bold">First-VASP-Hit Priority Search</text>
+  <text x="365" y="230" fill="#8A97B8" font-size="11">Priority-queue traversal keyed by tainted</text>
+  <text x="365" y="248" fill="#8A97B8" font-size="11">value with time-window gating</text>
+  <text x="365" y="272" fill="#22D3EE" font-size="10">Taint: Haircut | FIFO | Poison</text>
+
+  <rect x="350" y="305" width="270" height="100" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="365" y="333" fill="#3DDC97" font-size="13" font-weight="bold">Attribution &amp; Heuristics</text>
+  <text x="365" y="355" fill="#8A97B8" font-size="11">Sweep pattern detection, cluster lookup,</text>
+  <text x="365" y="373" fill="#8A97B8" font-size="11">and mathematical confidence formula:</text>
+  <text x="365" y="393" fill="#3DDC97" font-size="10">0.45*W + 0.30*E + 0.15*C - 0.02*Hops</text>
+
+  <rect x="350" y="420" width="270" height="85" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="365" y="448" fill="#8B7CFF" font-size="13" font-weight="bold">Cross-Chain &amp; DEX Bridges</text>
+  <text x="365" y="470" fill="#8A97B8" font-size="11">Bridge log matching (amount, time,</text>
+  <text x="365" y="488" fill="#8A97B8" font-size="11">uniqueness) + DEX swap router unrolling</text>
+
+  <rect x="350" y="520" width="270" height="85" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="365" y="548" fill="#FF5D5D" font-size="13" font-weight="bold">Mixer &amp; Privacy Analytics</text>
+  <text x="365" y="570" fill="#8A97B8" font-size="11">Probabilistic denomination matcher</text>
+  <text x="365" y="588" fill="#8A97B8" font-size="11">with low-confidence caveats</text>
+
+  <rect x="350" y="620" width="270" height="90" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="365" y="648" fill="#FFB020" font-size="13" font-weight="bold">AI / ML Risk &amp; Typology</text>
+  <text x="365" y="670" fill="#8A97B8" font-size="11">RandomForest Classifier (Role)</text>
+  <text x="365" y="688" fill="#8A97B8" font-size="11">IsolationForest (Anomaly) + 7 Typologies</text>
+
+  <!-- Connectors from Layer 2 to Layer 3 -->
+  <path d="M 640 350 L 680 350" stroke="#22D3EE" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- Layer 3: Data Layer & Persistence -->
+  <rect x="680" y="120" width="220" height="620" rx="10" fill="url(#panelGrad)" stroke="#1F2B47" stroke-width="1.5"/>
+  <rect x="680" y="120" width="220" height="42" rx="10" fill="#121B30" stroke="#1F2B47" stroke-width="1"/>
+  <text x="700" y="147" fill="#3DDC97" font-size="14" font-weight="bold">3. DATA &amp; STORAGE</text>
+
+  <rect x="700" y="180" width="180" height="85" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="715" y="208" fill="#E6ECFF" font-size="13" font-weight="bold">SQLite WAL DB</text>
+  <text x="715" y="230" fill="#8A97B8" font-size="11">22 tables, indexed transfers,</text>
+  <text x="715" y="248" fill="#8A97B8" font-size="11">PostgreSQL swap ready</text>
+
+  <rect x="700" y="280" width="180" height="85" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="715" y="308" fill="#FFB020" font-size="13" font-weight="bold">Chain Adapters</text>
+  <text x="715" y="330" fill="#8A97B8" font-size="11">DemoAdapter (Synthetic)</text>
+  <text x="715" y="348" fill="#8A97B8" font-size="11">Tron, EVM, Bitcoin</text>
+
+  <rect x="700" y="380" width="180" height="100" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="715" y="408" fill="#3DDC97" font-size="13" font-weight="bold">Audit Hash Chain</text>
+  <text x="715" y="430" fill="#8A97B8" font-size="11">Tamper-evident log with</text>
+  <text x="715" y="448" fill="#8A97B8" font-size="11">SHA-256 prev_hash &amp;</text>
+  <text x="715" y="466" fill="#8A97B8" font-size="11">entry_hash chain</text>
+
+  <rect x="700" y="495" width="180" height="110" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="715" y="523" fill="#22D3EE" font-size="13" font-weight="bold">Evidence Vault</text>
+  <text x="715" y="545" fill="#8A97B8" font-size="11">A4 Investigation PDFs,</text>
+  <text x="715" y="563" fill="#8A97B8" font-size="11">Verification QR codes,</text>
+  <text x="715" y="581" fill="#8A97B8" font-size="11">JSON canonical snapshots</text>
+
+  <rect x="700" y="620" width="180" height="90" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="715" y="648" fill="#8B7CFF" font-size="13" font-weight="bold">Native WebSockets</text>
+  <text x="715" y="670" fill="#8A97B8" font-size="11">Pub/Sub live streaming</text>
+  <text x="715" y="688" fill="#8A97B8" font-size="11">for trace, alerts, inbox</text>
+
+  <!-- Connectors from Layer 3 to Layer 4 -->
+  <path d="M 900 350 L 940 350" stroke="#3DDC97" stroke-width="2" stroke-dasharray="4,4"/>
+
+  <!-- Layer 4: Presentation & Investigation Command UI -->
+  <rect x="940" y="120" width="220" height="620" rx="10" fill="url(#panelGrad)" stroke="#1F2B47" stroke-width="1.5"/>
+  <rect x="940" y="120" width="220" height="42" rx="10" fill="#121B30" stroke="#1F2B47" stroke-width="1"/>
+  <text x="960" y="147" fill="#FFB020" font-size="14" font-weight="bold">4. COMMAND CENTER UI</text>
+
+  <rect x="960" y="180" width="180" height="75" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="975" y="208" fill="#E6ECFF" font-size="13" font-weight="bold">Case Workspace</text>
+  <text x="975" y="230" fill="#8A97B8" font-size="11">Cytoscape Graph &amp; Replay</text>
+
+  <rect x="960" y="270" width="180" height="75" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="975" y="298" fill="#FFB020" font-size="13" font-weight="bold">Case Linking</text>
+  <text x="975" y="320" fill="#8A97B8" font-size="11">Syndicate Evidence Board</text>
+
+  <rect x="960" y="360" width="180" height="75" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="975" y="388" fill="#3DDC97" font-size="13" font-weight="bold">Freeze Composer</text>
+  <text x="975" y="410" fill="#8A97B8" font-size="11">VASP Workflow Automation</text>
+
+  <rect x="960" y="450" width="180" height="75" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="975" y="478" fill="#22D3EE" font-size="13" font-weight="bold">Verify Certificate</text>
+  <text x="975" y="500" fill="#8A97B8" font-size="11">Public Evidence Portal</text>
+
+  <rect x="960" y="540" width="180" height="75" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="975" y="568" fill="#8B7CFF" font-size="13" font-weight="bold">Tour &amp; Guided Case</text>
+  <text x="975" y="590" fill="#8A97B8" font-size="11">17-Step Tour &amp; Narration</text>
+
+  <rect x="960" y="630" width="180" height="80" rx="6" fill="#070B14" stroke="#1F2B47"/>
+  <text x="975" y="658" fill="#FF5D5D" font-size="13" font-weight="bold">Live Watchlist</text>
+  <text x="975" y="680" fill="#8A97B8" font-size="11">Instant Toast &amp; Feed Alerts</text>
+</svg>

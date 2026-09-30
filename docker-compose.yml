@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chainnetra-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - CHAINNETRA_MODE=DEMO
+      - SECRET_KEY=netra-super-secret-jwt-forensic-key-2026-sih-prototype
+      - DATABASE_URL=sqlite:///./chainnetra.db
+      - USD_INR_RATE=83.50
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: chainnetra-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
