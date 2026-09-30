@@ -6,7 +6,7 @@ from app.core.ws import ws_manager
 from app.core.security import SecurityHeadersMiddleware, require_user, require_role
 from app.api.v1 import (
     auth, complaints, cases, wallets, entities, watchlist,
-    alerts, freeze, reports, verify, analytics, admin, webhooks, system
+    alerts, freeze, reports, verify, analytics, admin, webhooks, system, ingest
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +44,7 @@ prefix = settings.API_V1_STR
 # Public & Hybrid Auth
 app.include_router(auth.router, prefix=prefix)
 app.include_router(verify.router, prefix=prefix)
+app.include_router(ingest.router, prefix=prefix)
 
 # Investigator / General Protected Routers (require_user)
 app.include_router(cases.router, prefix=prefix, dependencies=[Depends(require_user)])

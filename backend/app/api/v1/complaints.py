@@ -13,6 +13,8 @@ from app.core.audit import log_audit_action
 
 router = APIRouter(prefix="", tags=["Complaints"])
 
+from app.core.pii import decrypt_pii
+
 class IngestRequest(BaseModel):
     victim_name: str
     victim_state: str = "Maharashtra"
@@ -21,6 +23,39 @@ class IngestRequest(BaseModel):
     amount_lost_inr: float
     complaint_number: Optional[str] = None
 
+def _format_complaint_dict(c: Complaint, user_role: str) -> dict:
+    victim_ref = c.victim_name
+    if c.victim_ref:
+        if user_role in ("supervisor", "admin"):
+            victim_ref = decrypt_pii(c.victim_ref, user_role)
+        else:
+            victim_ref = "REDACTED"
+
+    return {
+        "id": c.id,
+        "complaint_number": c.complaint_number,
+        "source": c.source,
+        "source_system": c.source_system,
+        "data_origin": c.data_origin,
+        "victim_name": c.victim_name,
+        "victim_ref": victim_ref,
+        "victim_state": c.victim_state,
+        "fraud_type": c.fraud_type,
+        "reported_wallets": json.loads(c.reported_wallets or "[]"),
+        "chain": c.chain,
+        "amount_lost_inr": c.amount_lost_inr,
+        "amount_lost_usd": c.amount_lost_usd,
+        "amount_unknown": c.amount_unknown,
+        "incident_at": c.incident_at.isoformat() if c.incident_at else None,
+        "reported_at": c.reported_at.isoformat() if c.reported_at else None,
+        "txn_hash": c.txn_hash,
+        "claimed_vasp_hint": c.claimed_vasp_hint,
+        "linked_complaint_ids": json.loads(c.linked_complaint_ids or "[]"),
+        "vasp_flag": c.vasp_flag,
+        "status": c.status,
+        "priority": c.priority
+    }
+
 @router.get("/complaints")
 def list_complaints(
     skip: int = Query(0, ge=0),
@@ -28,6 +63,7 @@ def list_complaints(
     status: Optional[str] = None,
     chain: Optional[str] = None,
     fraud_type: Optional[str] = None,
+    current_user: User = Depends(require_user),
     db: Session = Depends(get_db)
 ):
     query = db.query(Complaint)
@@ -43,46 +79,19 @@ def list_complaints(
 
     return {
         "total": total,
-        "items": [
-            {
-                "id": c.id,
-                "complaint_number": c.complaint_number,
-                "source": c.source,
-                "victim_name": c.victim_name,
-                "victim_state": c.victim_state,
-                "fraud_type": c.fraud_type,
-                "reported_wallets": json.loads(c.reported_wallets or "[]"),
-                "chain": c.chain,
-                "amount_lost_inr": c.amount_lost_inr,
-                "amount_lost_usd": c.amount_lost_usd,
-                "reported_at": c.reported_at.isoformat(),
-                "status": c.status,
-                "priority": c.priority
-            }
-            for c in items
-        ]
+        "items": [_format_complaint_dict(c, current_user.role) for c in items]
     }
 
 @router.get("/complaints/{id}")
-def get_complaint(id: int, db: Session = Depends(get_db)):
+def get_complaint(
+    id: int,
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db)
+):
     c = db.query(Complaint).filter(Complaint.id == id).first()
     if not c:
         raise HTTPException(status_code=404, detail="Complaint not found")
-    return {
-        "id": c.id,
-        "complaint_number": c.complaint_number,
-        "source": c.source,
-        "victim_name": c.victim_name,
-        "victim_state": c.victim_state,
-        "fraud_type": c.fraud_type,
-        "reported_wallets": json.loads(c.reported_wallets or "[]"),
-        "chain": c.chain,
-        "amount_lost_inr": c.amount_lost_inr,
-        "amount_lost_usd": c.amount_lost_usd,
-        "reported_at": c.reported_at.isoformat(),
-        "status": c.status,
-        "priority": c.priority
-    }
+    return _format_complaint_dict(c, current_user.role)
 
 @router.post("/ingest/ncrp")
 async def ingest_ncrp(

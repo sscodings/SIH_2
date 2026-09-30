@@ -67,6 +67,7 @@ class IngestionService:
         complaint = Complaint(
             complaint_number=complaint_number,
             source=source,
+            source_system=source,
             victim_name=victim_name,
             victim_state=victim_state,
             fraud_type=fraud_type,
@@ -80,6 +81,20 @@ class IngestionService:
             raw_payload=json.dumps({"duplicate_hits": len(existing_matches)})
         )
         db.add(complaint)
+        db.flush()
+
+        from app.db.models import ComplaintWallet
+        from app.core.addresses import normalize
+        for w in reported_wallets:
+            cw = ComplaintWallet(
+                complaint_id=complaint.id,
+                chain=chain,
+                normalized_address=normalize(chain, w),
+                is_primary=True,
+                created_at=datetime.utcnow()
+            )
+            db.add(cw)
+
         db.commit()
         db.refresh(complaint)
         return complaint

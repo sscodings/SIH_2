@@ -34,19 +34,45 @@ class UserRefreshToken(Base):
 class Complaint(Base):
     __tablename__ = "complaints"
     id = Column(Integer, primary_key=True, index=True)
-    complaint_number = Column(String(100), unique=True, index=True, nullable=False)
-    source = Column(String(50), default="NCRP")  # NCRP, SAHYOG, Manual, Bulk
-    victim_name = Column(String(255), nullable=False)
+    complaint_number = Column(String(100), index=True, nullable=False)
+    source_system = Column(String(50), default="NCRP")  # NCRP, SAHYOG, Manual, Bulk
+    source = Column(String(50), default="NCRP")  # Backward compatibility
+    data_origin = Column(String(50), default="REAL")  # REAL, SYNTHETIC
+    victim_name = Column(String(255), default="Victim (Masked)")
+    victim_ref = Column(String(500), nullable=True)  # Fernet encrypted
     victim_state = Column(String(100), default="Maharashtra")
     fraud_type = Column(String(100), default="Investment Scam")
     reported_wallets = Column(Text, nullable=False)  # JSON list of addresses
     chain = Column(String(50), default="tron")
     amount_lost_inr = Column(Float, default=0.0)
     amount_lost_usd = Column(Float, default=0.0)
+    amount_unknown = Column(Boolean, default=False)
+    incident_at = Column(DateTime, nullable=True)
     reported_at = Column(DateTime, default=datetime.datetime.utcnow)
+    txn_hash = Column(String(255), nullable=True)
+    claimed_vasp_hint = Column(String(255), nullable=True)
+    linked_complaint_ids = Column(Text, default="[]")  # JSON list
+    vasp_flag = Column(String(255), nullable=True)
     status = Column(String(50), default="New")  # New, Assigned, Tracing, Actioned, Closed
     priority = Column(String(50), default="High")  # Critical, High, Medium, Low
     raw_payload = Column(Text, default="{}")  # JSON
+
+    __table_args__ = (
+        UniqueConstraint("source_system", "complaint_number", name="uq_complaints_source_num"),
+    )
+
+class ComplaintWallet(Base):
+    __tablename__ = "complaint_wallets"
+    id = Column(Integer, primary_key=True, index=True)
+    complaint_id = Column(Integer, ForeignKey("complaints.id"), index=True, nullable=False)
+    chain = Column(String(50), index=True, nullable=False)
+    normalized_address = Column(String(255), index=True, nullable=False)
+    is_primary = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_complaint_wallets_chain_addr", "chain", "normalized_address"),
+    )
 
 class Case(Base):
     __tablename__ = "cases"
@@ -58,6 +84,7 @@ class Case(Base):
     primary_address = Column(String(255), index=True, nullable=False)
     status = Column(String(50), default="Active")  # Active, In Review, Frozen, Closed
     priority = Column(String(50), default="High")
+    data_origin = Column(String(50), default="REAL")  # REAL, SYNTHETIC
     time_to_vasp_seconds = Column(Float, nullable=True)
     created_by = Column(String(255), default="system", nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -418,10 +445,27 @@ class ApiKey(Base):
     name = Column(String(100), nullable=False)
     key_prefix = Column(String(16), nullable=False)
     hashed_key = Column(String(255), nullable=False)
+    secret = Column(String(255), nullable=True)  # HMAC signing secret
+    scopes = Column(String(255), default="ingest:write")  # comma-separated scopes
     role = Column(String(50), default="investigator")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
+
+class OutboxMessage(Base):
+    __tablename__ = "outbox_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    event_type = Column(String(100), nullable=False)
+    destination_url = Column(String(500), nullable=False)
+    payload = Column(Text, default="{}")
+    headers = Column(Text, default="{}")
+    status = Column(String(50), default="pending")  # pending, sent, failed
+    retry_count = Column(Integer, default=0)
+    max_retries = Column(Integer, default=3)
+    next_retry_at = Column(DateTime, default=datetime.datetime.utcnow)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    sent_at = Column(DateTime, nullable=True)
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
