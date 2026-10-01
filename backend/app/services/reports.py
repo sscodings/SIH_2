@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 from app.db.models import Case, Report, TraceSnapshot
 from app.core.config import settings
 from app.core.audit import log_audit_action
+from app.legal.provisions import get_citation, format_citation_footer, LEGAL_DISCLAIMER
+
 
 REPORTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports_storage")
 os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -183,9 +185,10 @@ class ReportService:
 
         # Recommended Actions
         elements.append(Paragraph("4. Recommended Priority Law Enforcement Actions", h2_style))
+        prod_cit = get_citation("production_of_documents")["citation"]
         recs = [
-            "<b>[CRITICAL]</b> Dispatch Emergency Account Freeze Notice to DemoX Exchange compliance team for deposit vault <code>TXDemoxDepositVault9999999999999</code>.",
-            "<b>[HIGH]</b> Issue Section 91 CrPC / IT Act production order for 90-day preservation of KYC identities, login IP addresses, device IMEIs, and connected bank details.",
+            "<b>[CRITICAL]</b> Dispatch Emergency Account Freeze Notice to target VASP compliance team.",
+            f"<b>[HIGH]</b> Issue {prod_cit} production order for 90-day preservation of KYC identities, login IP addresses, device IMEIs, and connected bank details.",
             "<b>[HIGH]</b> Cross-reference beneficiary records against linked interstate NCRP cyber complaints.",
             "<b>[MEDIUM]</b> Place intermediary mule wallets on 24/7 automated ChainNetra mempool watchlist."
         ]
@@ -195,20 +198,35 @@ class ReportService:
 
         elements.append(Spacer(1, 10))
 
-        # Certificate of Authenticity (Section 65B format)
-        elements.append(Paragraph("5. Digital Evidence Certificate (Template)", h2_style))
+        # Digital Evidence Certificate Reference
+        cert_info = get_citation("electronic_evidence_certificate")
+        cert_cit = cert_info["citation"]
+        elements.append(Paragraph(f"5. Digital Evidence Certificate ({cert_cit} Format)", h2_style))
         cert_text = (
-            "I hereby certify that this electronic forensic report is a true reproduction of cryptographically logged "
+            "This electronic forensic report is generated as cryptographically logged "
             "records extracted from the ChainNetra ledger indexing engine. The hash of the underlying canonical trace "
-            f"snapshot is <b>{snapshot_hash}</b>. The system was functioning under normal operating parameters during data generation."
+            f"snapshot is <b>{snapshot_hash}</b>. For formal court submission, a statutory certificate under {cert_cit} must be executed."
         )
         elements.append(Paragraph(cert_text, caption_style))
         elements.append(Spacer(1, 10))
+
+        # Statutory Citations Used & Mandatory Disclaimer Footer
+        citations_used = [
+            get_citation("production_of_documents"),
+            get_citation("electronic_evidence_certificate"),
+            get_citation("electronic_record_primary_evidence")
+        ]
+        footer_text = format_citation_footer(citations_used)
+        elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#CBD5E1"), spaceAfter=6))
+        for fl in footer_text.split("\n"):
+            elements.append(Paragraph(fl, caption_style))
+        elements.append(Spacer(1, 6))
 
         # Verification Hash Footer
         elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#E2E8F0"), spaceAfter=8))
         elements.append(Paragraph(f"<b>Snapshot SHA-256:</b> {snapshot_hash}", caption_style))
         elements.append(Paragraph(f"<b>Verification Portal:</b> {verify_url}", caption_style))
+
 
         # Build document
         doc.build(elements)

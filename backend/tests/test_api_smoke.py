@@ -65,14 +65,42 @@ def test_api_freeze_requests_workflow(client, db_session, investigator_token, su
     db_session.add(entity)
     db_session.commit()
 
-    # Create freeze request (Draft)
+    # Incomplete freeze request (Draft)
+    draft_incomplete = {
+        "case_id": case.id,
+        "vasp_id": entity.id,
+        "deposit_address": "0x2222222222222222222222222222222222222222",
+        "suspect_wallet": "0x1111111111111111111111111111111111111111",
+        "notes": "Draft incomplete"
+    }
+    res_draft = client.post("/api/v1/freeze-requests", json=draft_incomplete, headers={"Authorization": f"Bearer {investigator_token}"})
+    assert res_draft.status_code == 200
+    draft_id = res_draft.json()["freeze_request_id"]
+
+    # Transitioning to Pending Approval with missing statutory fields must return 422
+    p_err = client.patch(f"/api/v1/freeze-requests/{draft_id}/status", json={"status": "Pending Approval"}, headers={"Authorization": f"Bearer {investigator_token}"})
+    assert p_err.status_code == 422
+    assert "Missing required statutory fields" in p_err.json()["detail"]
+
+    # Create freeze request with statutory fields (Draft)
     freeze_payload = {
         "case_id": case.id,
         "vasp_id": entity.id,
         "deposit_address": "0x2222222222222222222222222222222222222222",
         "suspect_wallet": "0x1111111111111111111111111111111111111111",
         "legal_order_ref": "Cr.No 120/2026",
-        "notes": "Emergency statutory hold"
+        "notes": "Emergency statutory hold",
+        "fir_number": "Cr.No 120/2026",
+        "fir_date": "2026-02-10",
+        "police_station": "Cyber PS Mumbai",
+        "district_state": "Mumbai, Maharashtra",
+        "offence_sections": ["BNS 318(4)"],
+        "io_name": "PI R. Patil",
+        "io_designation": "Police Inspector",
+        "io_contact": "+91-9876543211",
+        "legal_basis": "bnss_106_seizure",
+        "freeze_amount": 25000.0,
+        "traced_tainted_amount": 25000.0
     }
     res = client.post("/api/v1/freeze-requests", json=freeze_payload, headers={"Authorization": f"Bearer {investigator_token}"})
     assert res.status_code == 200

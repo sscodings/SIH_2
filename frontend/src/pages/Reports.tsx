@@ -52,7 +52,7 @@ export const Reports: React.FC = () => {
             </span>
           </h1>
           <p className="text-xs text-text-muted mt-0.5">
-            Court-admissible PDF reports featuring cryptographic SHA-256 hashes, QR verification, and Section 65B certificates.
+            Court-admissible PDF reports featuring cryptographic SHA-256 hashes, QR verification, and statutory digital evidence certificates.
           </p>
         </div>
 

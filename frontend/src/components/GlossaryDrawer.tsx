@@ -70,7 +70,7 @@ export const GLOSSARY_TERMS: GlossaryItem[] = [
   },
   {
     term: 'Freeze Request',
-    definition: 'A formal law-enforcement legal demand served to a VASP compliance desk under Section 91/102 CrPC or IT Act, directing the immediate restraint of suspect deposit balances and preservation of KYC.',
+    definition: 'A formal law-enforcement legal demand served to a VASP compliance desk under applicable statutory provisions, directing the immediate restraint of suspect deposit balances and preservation of KYC.',
     category: 'Legal & Regulatory'
   },
   {

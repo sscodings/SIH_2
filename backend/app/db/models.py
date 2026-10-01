@@ -1,7 +1,10 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Date, Text, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import relationship, Session
 from app.db.database import Base
+from app.core.crypto import EncryptedString, EncryptedText
+
+
 
 class User(Base):
     __tablename__ = "users"
@@ -39,7 +42,8 @@ class Complaint(Base):
     source = Column(String(50), default="NCRP")  # Backward compatibility
     data_origin = Column(String(50), default="REAL")  # REAL, SYNTHETIC
     victim_name = Column(String(255), default="Victim (Masked)")
-    victim_ref = Column(String(500), nullable=True)  # Fernet encrypted
+    victim_ref = Column(EncryptedString(500), nullable=True)  # MultiFernet encrypted
+    legal_hold = Column(Boolean, default=False)  # Prevents automated retention purge
     victim_state = Column(String(100), default="Maharashtra")
     fraud_type = Column(String(100), default="Investment Scam")
     reported_wallets = Column(Text, nullable=False)  # JSON list of addresses
@@ -428,7 +432,29 @@ class FreezeRequest(Base):
     victim_loss_usd = Column(Float, default=0.0)
     tx_hashes = Column(Text, default="[]")  # JSON
     status = Column(String(50), default="Draft")  # Draft, Pending Approval, Approved, Sent, Acknowledged, Frozen, Rejected
-    legal_order_ref = Column(String(255), default="Cr.No 402/2026 U/S 66D IT Act & 420 IPC")
+    legal_order_ref = Column(String(255), nullable=True, default=None)
+    
+    # E2 Statutory and Case Identification Fields (No fake defaults)
+    fir_number = Column(String(64), nullable=True, default=None)
+    fir_date = Column(Date, nullable=True, default=None)
+    police_station = Column(String(128), nullable=True, default=None)
+    district_state = Column(String(128), nullable=True, default=None)
+    offence_sections = Column(Text, nullable=True, default=None)  # JSON list of provision keys
+    io_name = Column(EncryptedString(128), nullable=True, default=None)
+    io_designation = Column(String(128), nullable=True, default=None)
+    io_contact = Column(EncryptedString(128), nullable=True, default=None)
+    legal_basis = Column(String(64), nullable=True, default=None)  # bnss_106_seizure, bnss_107_attachment, court_order
+    court_order_ref = Column(String(128), nullable=True, default=None)
+    court_order_date = Column(Date, nullable=True, default=None)
+    freeze_amount = Column(Float, nullable=True, default=None)
+    traced_tainted_amount = Column(Float, nullable=True, default=0.0)
+    supporting_tx_hashes = Column(Text, nullable=True, default="[]")
+    over_limit_justification = Column(Text, nullable=True, default=None)
+    magistrate_reported = Column(Boolean, default=False)
+    magistrate_report_ref = Column(String(128), nullable=True, default=None)
+    data_origin = Column(String(50), default="LIVE")  # LIVE, SYNTHETIC, DEMO
+    watermark = Column(String(64), default="DRAFT - NOT FOR DISPATCH")
+
     created_by = Column(String(255), default="system", nullable=False)
     approved_by = Column(String(255), nullable=True)
     approved_at = Column(DateTime, nullable=True)
@@ -436,8 +462,44 @@ class FreezeRequest(Base):
     acknowledged_at = Column(DateTime, nullable=True)
     frozen_amount_usd = Column(Float, default=0.0)
     pdf_path = Column(String(500), nullable=True)
-    notes = Column(Text, default="")
+    notes = Column(EncryptedText, default="")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class CaseTask(Base):
+    __tablename__ = "case_tasks"
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(Integer, ForeignKey("cases.id"), index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    owner = Column(String(255), nullable=False)
+    is_due = Column(Boolean, default=True)
+    is_completed = Column(Boolean, default=False)
+    completion_date = Column(DateTime, nullable=True)
+    magistrate_reference = Column(String(128), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class DigitalEvidenceCertificate(Base):
+    __tablename__ = "digital_evidence_certificates"
+    id = Column(Integer, primary_key=True, index=True)
+    certificate_id = Column(String(100), unique=True, index=True, nullable=False)
+    case_id = Column(Integer, ForeignKey("cases.id"), index=True)
+    bundle_manifest_hash = Column(String(64), nullable=False)
+    generated_by = Column(String(255), nullable=False)
+    pdf_path = Column(String(500), nullable=False)
+    is_court_ready = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+class PIIAccessLog(Base):
+
+    __tablename__ = "pii_access_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String(255), nullable=False)
+    record_type = Column(String(100), nullable=False)
+    record_id = Column(String(100), nullable=False)
+    fields_viewed = Column(Text, nullable=False)
+    reason = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
 
 class Report(Base):
     __tablename__ = "reports"

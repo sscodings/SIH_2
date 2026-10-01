@@ -6,8 +6,10 @@ from app.core.ws import ws_manager
 from app.core.security import SecurityHeadersMiddleware, require_user, require_role
 from app.api.v1 import (
     auth, complaints, cases, wallets, entities, watchlist,
-    alerts, freeze, reports, verify, analytics, admin, webhooks, system, ingest
+    alerts, freeze, reports, verify, analytics, admin, webhooks, system, ingest, legal
 )
+from app.legal.provisions import load_provisions_config
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("chainnetra")
@@ -32,7 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Native WebSocket Endpoint (protected with token authentication in Section 5)
+# Native WebSocket Endpoint (protected with token authentication in Phase 5)
 @app.websocket("/ws/events")
 async def websocket_events_endpoint(websocket: WebSocket):
     from app.core.ws import handle_websocket_connection
@@ -45,6 +47,17 @@ prefix = settings.API_V1_STR
 app.include_router(auth.router, prefix=prefix)
 app.include_router(verify.router, prefix=prefix)
 app.include_router(ingest.router, prefix=prefix)
+app.include_router(legal.router, prefix=prefix)
+
+@app.on_event("startup")
+def startup_legal_validation():
+    try:
+        load_provisions_config()
+    except Exception as e:
+        logger.error(f"Failed to load legal provisions config: {e}")
+        if settings.CHAINNETRA_MODE == "LIVE":
+            raise
+
 
 # Investigator / General Protected Routers (require_user)
 app.include_router(cases.router, prefix=prefix, dependencies=[Depends(require_user)])
@@ -60,6 +73,9 @@ app.include_router(system.router, prefix=prefix, dependencies=[Depends(require_u
 # Supervisor / Admin Protected Routers
 app.include_router(analytics.router, prefix=prefix, dependencies=[Depends(require_role("supervisor", "admin"))])
 app.include_router(admin.audit_router, prefix=prefix, dependencies=[Depends(require_role("supervisor", "admin"))])
+app.include_router(admin.audit_alias_router, prefix=prefix, dependencies=[Depends(require_role("supervisor", "admin"))])
+app.include_router(admin.audit_alias_router, dependencies=[Depends(require_role("supervisor", "admin"))])
+
 
 # Admin Only Routers
 app.include_router(admin.router, prefix=prefix, dependencies=[Depends(require_role("admin"))])

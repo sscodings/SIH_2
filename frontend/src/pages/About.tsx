@@ -56,7 +56,7 @@ export const About: React.FC = () => {
           <ul className="space-y-2 text-xs text-text-muted leading-relaxed">
             <li>• Automated First-VASP-Hit tracing algorithm explores flows in priority order by tainted value.</li>
             <li>• Reduces attribution response time from ~3 days to under 3 seconds.</li>
-            <li>• 1-Click standardized freeze notice generator citing Section 91/102 CrPC and transaction hashes.</li>
+            <li>• 1-Click standardized freeze notice generator citing verified statutory provisions and transaction hashes.</li>
             <li>• Tamper-evident evidence reports with SHA-256 seal and QR verification portal.</li>
           </ul>
         </div>

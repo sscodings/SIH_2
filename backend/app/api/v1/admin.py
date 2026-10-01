@@ -6,12 +6,15 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.db.database import get_db
-from app.db.models import AuditLog, AuditCheckpoint, AppSetting, User
+from app.db.models import AuditLog, AuditCheckpoint, AppSetting, User, PIIAccessLog
 from app.core.audit import verify_audit_chain, log_audit_action
 from app.core.security import require_role
 
+
 router = APIRouter(prefix="/admin", tags=["Admin & Settings"])
 audit_router = APIRouter(prefix="/audit-log", tags=["Audit Log"])
+audit_alias_router = APIRouter(prefix="/audit", tags=["Audit Log Alias"])
+
 
 class SettingUpdateRequest(BaseModel):
     key: str
@@ -70,6 +73,32 @@ def get_audit_checkpoints(
             for c in checkpoints
         ]
     }
+
+@audit_router.get("/pii-access")
+@audit_alias_router.get("/pii-access")
+def get_pii_access_log(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db)
+):
+    total = db.query(PIIAccessLog).count()
+    logs = db.query(PIIAccessLog).order_by(PIIAccessLog.timestamp.desc()).offset(skip).limit(limit).all()
+    return {
+        "total": total,
+        "logs": [
+            {
+                "id": l.id,
+                "user_email": l.user_email,
+                "record_type": l.record_type,
+                "record_id": l.record_id,
+                "fields_viewed": l.fields_viewed,
+                "reason": l.reason,
+                "timestamp": l.timestamp.isoformat() if l.timestamp else None
+            }
+            for l in logs
+        ]
+    }
+
 
 # Admin-only Settings & Management Endpoints
 @router.get("/settings")

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import pytest
 from unittest.mock import patch, MagicMock
 
+from sqlalchemy import text
 from app.db.models import Complaint, ComplaintWallet, Case, Alert, Label, ApiKey, AuditLog, OutboxMessage
 from app.services.complaint_source import MockNcrpSource, ComplaintIngestionPipeline
 from app.services.file_drop import scan_and_process_drop_dir
@@ -139,10 +140,13 @@ def test_pii_role_based_access(client, db_session, investigator_token, superviso
     assert res["status"] == "accepted"
     complaint_id = res["complaint_id"]
 
-    # Verify encrypted at rest
-    raw_record = db_session.query(Complaint).filter(Complaint.id == complaint_id).first()
-    assert raw_record.victim_ref != "REAL_AADHAAR_9876"
-    assert "REAL_AADHAAR_9876" not in raw_record.victim_ref
+    # Verify encrypted at rest in raw SQL
+    raw_val = db_session.execute(
+        text("SELECT victim_ref FROM complaints WHERE id = :id"),
+        {"id": complaint_id}
+    ).scalar()
+    assert raw_val != "REAL_AADHAAR_9876"
+    assert raw_val.startswith("gAAAAA")
 
     # 1. Investigator gets redacted
     inv_resp = client.get(
@@ -152,17 +156,17 @@ def test_pii_role_based_access(client, db_session, investigator_token, superviso
     assert inv_resp.status_code == 200
     assert inv_resp.json()["victim_ref"] == "REDACTED"
 
-    # 2. Supervisor gets unmasked
+    # 2. Supervisor gets unmasked with mandatory reason
     sup_resp = client.get(
-        f"/api/v1/complaints/{complaint_id}",
+        f"/api/v1/complaints/{complaint_id}?unmask=true&reason=Investigative+audit",
         headers={"Authorization": f"Bearer {supervisor_token}"}
     )
     assert sup_resp.status_code == 200
     assert sup_resp.json()["victim_ref"] == "REAL_AADHAAR_9876"
 
-    # 3. Admin gets unmasked
+    # 3. Admin gets unmasked with mandatory reason
     adm_resp = client.get(
-        f"/api/v1/complaints/{complaint_id}",
+        f"/api/v1/complaints/{complaint_id}?unmask=true&reason=Admin+oversight",
         headers={"Authorization": f"Bearer {admin_token}"}
     )
     assert adm_resp.status_code == 200

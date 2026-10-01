@@ -77,7 +77,7 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     title: 'VASP Freeze Request Composer',
-    description: 'Auto-populate formal law enforcement freeze requests, citing transaction hashes, loss figures, and legal sections (IT Act / CrPC) with live PDF generation.',
+    description: 'Auto-populate formal law enforcement freeze requests, citing transaction hashes, loss figures, and applicable statutory provisions with live PDF generation.',
     targetPath: '/vasps',
     badge: '12 / 17'
   },

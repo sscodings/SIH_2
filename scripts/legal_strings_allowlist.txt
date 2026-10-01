@@ -1,0 +1,10 @@
+# Explicit allowlist for check_legal_strings.py
+# Format: <relative_path>:<line_number_or_pattern>:<justification>
+# Benign numerical values or non-statutory occurrences:
+frontend/src/pages/Analytics.tsx:420:SVG coordinate or graph dimension
+frontend/src/pages/Reports.tsx:420:SVG coordinate or chart dimension
+backend/app/db/seed.py:420:Benign synthetic victim loss amount (1420000)
+backend/tests/fixtures/sample_complaint.csv:65B:Part of synthetic SHA-256 transaction hash
+docs/research/sample_complaint.csv:65B:Part of synthetic SHA-256 transaction hash
+backend/app/services/outbox.py:79(3)(b):Sahyog outbound takedown notice format per decisions.md item 8
+backend/app/api/v1/ingest.py:79(3)(b):Sahyog outbound takedown notice format per decisions.md item 8

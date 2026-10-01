@@ -29,7 +29,8 @@ async def enqueue_trace_job(
     job_id: str,
     params: Dict[str, Any],
     actor_email: str,
-    background_tasks: Optional[BackgroundTasks] = None
+    background_tasks: Optional[BackgroundTasks] = None,
+    db: Optional[Any] = None
 ) -> str:
     """
     Enqueues a trace job to arq Redis pool if available,
@@ -45,7 +46,8 @@ async def enqueue_trace_job(
             logger.warning(f"Failed to enqueue to arq ({e}). Falling back to local BackgroundTasks.")
 
     if background_tasks is not None:
-        background_tasks.add_task(run_trace_job, {}, case_id, job_id, params, actor_email)
+        ctx = {"db": db} if db is not None else {}
+        background_tasks.add_task(run_trace_job, ctx, case_id, job_id, params, actor_email)
         logger.info(f"Scheduled trace job {job_id} via local BackgroundTasks")
         return "queued"
 

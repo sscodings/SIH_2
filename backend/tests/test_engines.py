@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from typing import List, Optional
 
 from app.adapters.base import ChainAdapter, Transfer, AddressSummary, Transaction, TokenBalance, AdapterError
@@ -10,7 +10,7 @@ from app.engines.tracer import TracingEngine
 from app.engines.crosschain import CrossChainEngine
 from app.engines.mixer import MixerEngine
 from app.services.ingest import IngestionService
-from app.services.freeze import FreezeService
+from app.services.freeze import FreezeService, FreezeTransitionError
 from app.core.audit import log_audit_action, verify_audit_chain
 from app.db.models import Case, Label, Entity, EntityAddress, Transfer as DBTransfer, FreezeRequest
 
@@ -350,7 +350,31 @@ def test_freeze_service_workflow(db_session):
     db_session.add(entity)
     db_session.commit()
 
-    # Create freeze request
+    # Create draft without required statutory fields
+    fr_draft = FreezeService.create_freeze_request(
+        db=db_session,
+        case_id=1,
+        vasp_id=entity.id,
+        deposit_address="0xcoindcxdeposit0000000000000000000000001",
+        suspect_wallet="0xsuspectwallet00000000000000000000000000",
+        notes="Freeze draft",
+        created_by="investigator@demo"
+    )
+    assert fr_draft.status == "Draft"
+
+    # Attempting to leave Draft without statutory fields must raise 422
+    with pytest.raises(FreezeTransitionError) as exc_info:
+        FreezeService.update_freeze_status(
+            db=db_session,
+            request_id=fr_draft.id,
+            new_status="Pending Approval",
+            actor_email="investigator@demo",
+            actor_role="investigator"
+        )
+    assert exc_info.value.status_code == 422
+    assert "Missing required statutory fields" in str(exc_info.value)
+
+    # Create freeze request with all mandatory statutory fields
     fr = FreezeService.create_freeze_request(
         db=db_session,
         case_id=1,
@@ -359,7 +383,18 @@ def test_freeze_service_workflow(db_session):
         suspect_wallet="0xsuspectwallet00000000000000000000000000",
         legal_order_ref="FIR 101/2026",
         notes="Freeze immediately",
-        created_by="investigator@demo"
+        created_by="investigator@demo",
+        fir_number="FIR 101/2026",
+        fir_date=date(2026, 1, 15),
+        police_station="Cyber Crime PS Pune",
+        district_state="Pune, Maharashtra",
+        offence_sections=["BNS 318(4)", "BNS 316(2)"],
+        io_name="Inspector S. Shinde",
+        io_designation="Inspector of Police",
+        io_contact="+91-9876543210",
+        legal_basis="bnss_106_seizure",
+        freeze_amount=5000.0,
+        traced_tainted_amount=5000.0
     )
     assert fr.status == "Draft"
     assert fr.request_number.startswith("FR-")

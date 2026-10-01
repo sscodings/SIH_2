@@ -10,7 +10,7 @@ from arq.connections import RedisSettings
 from arq import cron
 
 from app.core.config import settings
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, Base, engine
 from app.db.models import (
     Case, CaseComplaint, Complaint, TraceJob, TraceSnapshot,
     Attribution, FundsStatus, Alert, Watchlist, Label, AppSetting, SystemCounter
@@ -72,6 +72,10 @@ async def run_trace_job(ctx: dict, case_id: int, job_id: str, params: dict, acto
         if isinstance(ctx, dict) and "db" in ctx:
             db = ctx["db"]
         else:
+            try:
+                Base.metadata.create_all(bind=engine)
+            except Exception:
+                pass
             db = SessionLocal()
             owns_db = True
     try:

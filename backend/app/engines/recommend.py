@@ -1,6 +1,7 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from app.core.config import settings
+from app.legal.provisions import get_citation
 
 class RecommendationEngine:
     @staticmethod
@@ -9,9 +10,14 @@ class RecommendationEngine:
         dormant_wallets: List[Dict[str, Any]],
         mixer_events: List[Dict[str, Any]],
         cross_chain_events: List[Dict[str, Any]],
-        complaint_matches: List[Dict[str, Any]]
+        complaint_matches: List[Dict[str, Any]],
+        offence_date: Optional[Any] = None
     ) -> List[Dict[str, Any]]:
         recommendations = []
+
+        # Get dynamic legal citation for log/document preservation
+        citation_info = get_citation("production_of_documents", {"offence_date": offence_date})
+        preservation_citation = citation_info["citation"]
 
         # 1. Freeze Request on identified VASPs
         for attr in attributions:
@@ -37,11 +43,12 @@ class RecommendationEngine:
                 "action_type": "PRESERVE_LOGS",
                 "title": f"Submit Log & KYC Preservation Notice to {vasp}",
                 "description": f"Request mandatory 90-day preservation of KYC records, login IP audit trails, device fingerprints, and linked fiat bank accounts for deposit address {deposit_addr}.",
-                "rationale": "Crucial for identifying beneficiary account holder identity under CrPC Section 91 / IT Act.",
+                "rationale": f"Crucial for identifying beneficiary account holder identity under {preservation_citation}.",
                 "target_address": deposit_addr,
                 "target_vasp": vasp,
                 "urgency_badge": "High Priority"
             })
+
 
         # 2. Dormant Holdings
         for dorm in dormant_wallets:

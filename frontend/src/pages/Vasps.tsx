@@ -22,7 +22,7 @@ export const Vasps: React.FC = () => {
     case_id: 1,
     deposit_address: 'TXDemoxDepositVault9999999999999',
     suspect_wallet: 'TXYZCollectorAlpha777111111111111',
-    legal_order_ref: 'Cr.No 402/2026 U/S 66D IT Act & 420 IPC',
+    legal_order_ref: '',
     notes: 'Urgent: Restrain account and preserve KYC identities for deposit vault.'
   });
 
@@ -105,7 +105,7 @@ export const Vasps: React.FC = () => {
         <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
         <div>
           <span className="font-bold">Statutory Legal Disclaimer:</span> ChainNetra recommends, automates attribution, and drafts standardized notice templates.
-          Formal account freezing and KYC seizure occurs under proper legal authorization by competent judicial/investigative authorities (e.g. Section 91/102 CrPC / IT Act 2000).
+          Formal account freezing and KYC seizure occurs under proper legal authorization by competent judicial and investigative authorities per configured statutory provisions.
         </div>
       </div>
 

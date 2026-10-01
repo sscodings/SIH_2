@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from app.db.models import Complaint, ComplaintWallet, Case, CaseComplaint, Label, Alert
 from app.core.config import settings
 from app.core.addresses import validate_address, validate_tx_hash, normalize
-from app.core.pii import encrypt_pii
 from app.labels.fiu import FiuVaspService
 
 logger = logging.getLogger("chainnetra.services.complaint_source")
@@ -127,9 +126,8 @@ class ComplaintIngestionPipeline:
         incident_date_raw = row.get("incident_date") or row.get("incident_at")
         incident_at = ComplaintIngestionPipeline.parse_incident_date(incident_date_raw)
 
-        # 5. PII Encryption (Fernet encrypt at rest)
+        # 5. PII Encryption (Fernet encrypt at rest via EncryptedString in models)
         victim_ref_raw = (row.get("victim_id_masked") or row.get("victim_ref") or row.get("victim_name") or f"V****{complaint_num[-4:]}").strip()
-        victim_ref_enc = encrypt_pii(victim_ref_raw)
 
         # 6. Tx Hash normalization & validation
         txn_hash_raw = (row.get("txn_hash") or "").strip()
@@ -226,7 +224,7 @@ class ComplaintIngestionPipeline:
             source=source_system,
             data_origin=data_origin,
             victim_name="Masked Complainant",
-            victim_ref=victim_ref_enc,
+            victim_ref=victim_ref_raw,
             victim_state=victim_state,
             fraud_type=fraud_type,
             reported_wallets=json.dumps([raw_wallet]),

@@ -7,10 +7,28 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from app.db.models import Complaint, Case, CaseComplaint
 from app.core.config import settings
+from app.core.time import utcnow
 from app.core.validators import validate_crypto_address, verify_tron_address, verify_bitcoin_address, verify_evm_address
 
 MAX_CSV_ROWS = 5000
 MAX_CSV_BYTES = 5 * 1024 * 1024  # 5MB
+
+AADHAAR_PATTERN = re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b")
+PHONE_PATTERN = re.compile(r"\b(?:\+91[\-\s]?)?[6-9]\d{9}\b")
+EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
+
+def detect_unmasked_identifiers(val: str) -> List[str]:
+    findings = []
+    if not val:
+        return findings
+    if AADHAAR_PATTERN.search(val):
+        findings.append("Aadhaar-like 12-digit number")
+    if PHONE_PATTERN.search(val):
+        findings.append("Unmasked 10-digit Indian phone number")
+    if EMAIL_PATTERN.search(val):
+        findings.append("Unmasked email address")
+    return findings
+
 
 class IngestionValidationError(Exception):
     pass
@@ -91,7 +109,7 @@ class IngestionService:
                 chain=chain,
                 normalized_address=normalize(chain, w),
                 is_primary=True,
-                created_at=datetime.utcnow()
+                created_at=utcnow()
             )
             db.add(cw)
 
@@ -123,6 +141,14 @@ class IngestionService:
                 errors.append(f"Row {idx}: Missing wallet address")
                 continue
 
+            # DPDP minimization check: reject obvious unmasked identifiers
+            victim = row.get("victim_name", f"Victim #{idx}").strip()
+            raw_row_str = " ".join(str(v) for v in row.values())
+            unmasked = detect_unmasked_identifiers(raw_row_str)
+            if unmasked:
+                errors.append(f"Row {idx}: Rejected due to unmasked personal identifier ({', '.join(unmasked)}). Accept only masked IDs.")
+                continue
+
             val = IngestionService.detect_chain_and_validate(wallet)
             if not val["valid"]:
                 errors.append(f"Row {idx}: Invalid address format '{wallet}'")
@@ -133,10 +159,10 @@ class IngestionService:
             except ValueError:
                 amt = 0.0
 
-            victim = row.get("victim_name", f"Victim #{idx}").strip()
             state = row.get("victim_state", "Maharashtra").strip()
             fraud = row.get("fraud_type", "Investment Scam").strip()
             src = row.get("source", "Bulk CSV").strip()
+
 
             c = IngestionService.ingest_single_complaint(
                 db=db,

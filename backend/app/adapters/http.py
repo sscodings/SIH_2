@@ -101,7 +101,7 @@ class HttpClientManager:
         self.cache_stats = {"hits": 0, "misses": 0}
 
         # Provider Map: chain -> provider
-        # Decisions.md & Section 6: BSC defaults to "none" until verified Blockscout adapter exists
+        # Decisions.md & Phase 6: BSC defaults to "none" until verified Blockscout adapter exists
         self.provider_map = {
             "ethereum": "etherscan_v2",
             "polygon": "etherscan_v2",

@@ -45,7 +45,7 @@ class EvmAdapter(ChainAdapter):
         self.http_mgr = HttpClientManager.get_instance()
 
     def _check_provider_support(self):
-        # Section 6: Free Etherscan does not cover BSC; map bsc to "none" -> raises ChainUnsupported
+        # Phase 6: Free Etherscan does not cover BSC; map bsc to "none" -> raises ChainUnsupported
         provider = self.http_mgr.get_provider_for_chain(self.chain_id)
         if provider == "none":
             raise ChainUnsupported(f"Chain '{self.chain_id}' is unsupported by available providers")

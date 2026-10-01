@@ -320,7 +320,7 @@ async def start_trace(
     db.add(trace_job)
     db.commit()
 
-    await enqueue_trace_job(id, job_id, payload.dict(), current_user.email, background_tasks)
+    await enqueue_trace_job(id, job_id, payload.dict(), current_user.email, background_tasks, db=db)
 
     return {
         "status": "started",

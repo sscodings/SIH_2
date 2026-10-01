@@ -57,15 +57,41 @@ def test_freeze_state_machine_and_separation_of_duties(client, db_session, inves
         created_by="investigator@demo"
     )
     db_session.add(case)
-    entity = Entity(name="Binance Test", category="Exchange")
+    entity = Entity(name="Binance Test", category="Exchange", compliance_contact="compliance@binance.demo")
     db_session.add(entity)
     db_session.commit()
+
+    # Test Draft missing statutory fields cannot leave Draft (422)
+    incomplete_payload = {
+        "case_id": case.id,
+        "vasp_id": entity.id,
+        "deposit_address": "0x2222222222222222222222222222222222222222",
+        "suspect_wallet": "0x1111111111111111111111111111111111111111"
+    }
+    inc_res = client.post("/api/v1/freeze-requests", json=incomplete_payload, headers={"Authorization": f"Bearer {investigator_token}"})
+    assert inc_res.status_code == 200
+    inc_id = inc_res.json()["freeze_request_id"]
+    res_incomplete_pending = client.patch(f"/api/v1/freeze-requests/{inc_id}/status", json={"status": "Pending Approval"}, headers={"Authorization": f"Bearer {investigator_token}"})
+    assert res_incomplete_pending.status_code == 422
+    assert "Missing required statutory fields" in res_incomplete_pending.json()["detail"]
 
     fr_payload = {
         "case_id": case.id,
         "vasp_id": entity.id,
         "deposit_address": "0x2222222222222222222222222222222222222222",
-        "suspect_wallet": "0x1111111111111111111111111111111111111111"
+        "suspect_wallet": "0x1111111111111111111111111111111111111111",
+        "fir_number": "FIR 88/2026",
+        "fir_date": "2026-03-01",
+        "police_station": "Cyber Crime PS Bengaluru",
+        "district_state": "Bengaluru, Karnataka",
+        "offence_sections": ["BNS 318(4)"],
+        "io_name": "Inspector K. Rao",
+        "io_designation": "Police Inspector",
+        "io_contact": "+91-9123456789",
+        "legal_basis": "bnss_106_seizure",
+        "freeze_amount": 10000.0,
+        "traced_tainted_amount": 10000.0,
+        "victim_loss_usd": 10000.0
     }
     create_res = client.post("/api/v1/freeze-requests", json=fr_payload, headers={"Authorization": f"Bearer {investigator_token}"})
     assert create_res.status_code == 200
