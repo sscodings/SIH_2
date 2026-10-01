@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
+import { getApiBaseUrl } from '../lib/config';
 import { useAppStore } from '../stores/useAppStore';
 
 export const Inbox: React.FC = () => {
@@ -113,7 +114,7 @@ export const Inbox: React.FC = () => {
 
     try {
       const token = localStorage.getItem('chainnetra_token');
-      const res = await fetch('http://localhost:8000/api/v1/ingest/csv', {
+      const res = await fetch(`${getApiBaseUrl()}/ingest/csv`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData

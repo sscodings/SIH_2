@@ -1,43 +1,38 @@
-.PHONY: install seed train test dev run-backend run-frontend clean
+# Cross-platform Makefile for ChainNetra
+# Delegates to stdlib scripts/dev.py to guarantee consistency across Linux, macOS, and Windows.
 
+.PHONY: setup seed dev test lint check docker-up docker-down clean
+
+PYTHON ?= python3
+
+# Fallback detection for python executable
 ifeq ($(OS),Windows_NT)
-	VENV_BIN = backend/venv/Scripts
-else
-	VENV_BIN = backend/venv/bin
+	PYTHON := python
 endif
 
-PYTHON = $(VENV_BIN)/python
-PIP = $(VENV_BIN)/pip
-PYTEST = $(VENV_BIN)/pytest
-UVICORN = $(VENV_BIN)/uvicorn
-
-install:
-	cd backend && python -m venv venv
-	$(PIP) install -r backend/requirements.txt
-	cd frontend && npm install
+setup:
+	$(PYTHON) scripts/dev.py setup
 
 seed:
-	cd backend && $(PYTHON) -m app.db.seed
+	$(PYTHON) scripts/dev.py seed
 
-train:
-	cd backend && $(PYTHON) -m app.ml.train
+dev:
+	$(PYTHON) scripts/dev.py dev
 
 test:
-	cd backend && $(PYTEST) tests/
+	$(PYTHON) scripts/dev.py test
 
-audit: pip-audit npm-audit
+lint:
+	$(PYTHON) scripts/dev.py lint
 
-pip-audit:
-	$(PIP) install pip-audit && $(VENV_BIN)/pip-audit --requirement backend/requirements.txt
+check:
+	$(PYTHON) scripts/dev.py check
 
-npm-audit:
-	cd frontend && npm audit
+docker-up:
+	$(PYTHON) scripts/dev.py docker-up
 
-run-backend:
-	cd backend && $(UVICORN) app.main:app --host 127.0.0.1 --port 8000 --reload
-
-run-frontend:
-	cd frontend && npm run dev
+docker-down:
+	$(PYTHON) scripts/dev.py docker-down
 
 clean:
-	rm -rf backend/venv frontend/node_modules frontend/dist
+	rm -rf .venv backend/venv frontend/node_modules frontend/dist __pycache__ .pytest_cache

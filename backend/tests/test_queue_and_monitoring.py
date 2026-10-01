@@ -10,6 +10,7 @@ from app.db.models import (
 )
 from app.worker import sweep_stuck_jobs, monitor_watchlist_wallets, run_trace_job
 from app.core.config import Settings
+from app.core.time import utcnow
 
 def test_locked_sequence_counters(db_session, client, investigator_token):
     """Tests thread-safe locked sequential numbering for cases and freeze requests."""
@@ -80,7 +81,7 @@ def test_trace_job_lifecycle_and_cancellation(db_session, client, investigator_t
 
 def test_stuck_job_sweeper(db_session):
     """Tests sweeper marks orphaned/timed-out running jobs as failed."""
-    past_time = datetime.utcnow() - timedelta(minutes=45)
+    past_time = utcnow() - timedelta(minutes=45)
 
     stuck_job = TraceJob(
         id="job-stuck-001",

@@ -5,6 +5,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List
+from app.core.time import utcnow
 from sqlalchemy.orm import Session
 from arq.connections import RedisSettings
 from arq import cron
@@ -41,7 +42,7 @@ async def sweep_stuck_jobs(ctx: Optional[dict] = None, db: Optional[Session] = N
             owns_db = True
     count = 0
     try:
-        cutoff = datetime.utcnow() - timedelta(minutes=30)
+        cutoff = utcnow() - timedelta(minutes=30)
         stuck_jobs = db.query(TraceJob).filter(
             TraceJob.status == "running",
             TraceJob.started_at < cutoff
@@ -50,7 +51,7 @@ async def sweep_stuck_jobs(ctx: Optional[dict] = None, db: Optional[Session] = N
         for j in stuck_jobs:
             j.status = "failed"
             j.error_message = "Trace job timed out or worker process was terminated (stuck job sweep)"
-            j.completed_at = datetime.utcnow()
+            j.completed_at = utcnow()
             count += 1
 
         db.commit()
@@ -144,7 +145,7 @@ async def run_trace_job(ctx: dict, case_id: int, job_id: str, params: dict, acto
             job_rec.status = "cancelled"
         else:
             job_rec.status = "completed"
-        job_rec.completed_at = datetime.utcnow()
+        job_rec.completed_at = utcnow()
         job_rec.elapsed_seconds = result.get("elapsed_seconds", 0.0)
 
         # Update case time_to_vasp_seconds
@@ -244,7 +245,7 @@ async def monitor_watchlist_wallets(ctx: Optional[dict] = None, db: Optional[Ses
 
     try:
         watchlist_items = db.query(Watchlist).all()
-        now = datetime.utcnow()
+        now = utcnow()
 
         for item in watchlist_items:
             checked += 1

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from app.labels.base import LabelSource, LabelRecord
 from app.core.addresses import validate_address
+from app.core.time import utcnow
 
 logger = logging.getLogger("chainnetra.labels.ofac")
 
@@ -153,8 +154,8 @@ class OfacLabelSource(LabelSource):
                         superseded_by=None,
                         record_status="active",
                         snapshot_date=publish_date,
-                        verified_at=datetime.utcnow(),
-                        fetched_at=datetime.utcnow()
+                        verified_at=utcnow(),
+                        fetched_at=utcnow()
                     ))
 
         logger.info(f"Loaded {len(records)} OFAC sanctioned address labels")

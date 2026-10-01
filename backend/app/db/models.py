@@ -1,7 +1,9 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Date, Text, ForeignKey, Index, UniqueConstraint
+import threading
+from sqlalchemy import text, Column, Integer, String, Float, Boolean, DateTime, Date, Text, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import relationship, Session
 from app.db.database import Base
+from app.core.time import utcnow
 from app.core.crypto import EncryptedString, EncryptedText
 
 
@@ -15,15 +17,15 @@ class User(Base):
     role = Column(String(50), default="investigator")  # investigator, supervisor, admin
     is_active = Column(Boolean, default=True)
     failed_login_attempts = Column(Integer, default=0)
-    locked_until = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class RevokedToken(Base):
     __tablename__ = "revoked_tokens"
     id = Column(Integer, primary_key=True, index=True)
     jti = Column(String(100), unique=True, index=True, nullable=False)
-    revoked_at = Column(DateTime, default=datetime.datetime.utcnow)
-    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime(timezone=True), default=utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
 
 class UserRefreshToken(Base):
     __tablename__ = "user_refresh_tokens"
@@ -31,8 +33,8 @@ class UserRefreshToken(Base):
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     token_hash = Column(String(255), unique=True, index=True, nullable=False)
     is_revoked = Column(Boolean, default=False)
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class Complaint(Base):
     __tablename__ = "complaints"
@@ -51,8 +53,8 @@ class Complaint(Base):
     amount_lost_inr = Column(Float, default=0.0)
     amount_lost_usd = Column(Float, default=0.0)
     amount_unknown = Column(Boolean, default=False)
-    incident_at = Column(DateTime, nullable=True)
-    reported_at = Column(DateTime, default=datetime.datetime.utcnow)
+    incident_at = Column(DateTime(timezone=True), nullable=True)
+    reported_at = Column(DateTime(timezone=True), default=utcnow)
     txn_hash = Column(String(255), nullable=True)
     claimed_vasp_hint = Column(String(255), nullable=True)
     linked_complaint_ids = Column(Text, default="[]")  # JSON list
@@ -72,7 +74,7 @@ class ComplaintWallet(Base):
     chain = Column(String(50), index=True, nullable=False)
     normalized_address = Column(String(255), index=True, nullable=False)
     is_primary = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (
         Index("ix_complaint_wallets_chain_addr", "chain", "normalized_address"),
@@ -91,23 +93,23 @@ class Case(Base):
     data_origin = Column(String(50), default="REAL")  # REAL, SYNTHETIC
     time_to_vasp_seconds = Column(Float, nullable=True)
     created_by = Column(String(255), default="system", nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 class CaseComplaint(Base):
     __tablename__ = "case_complaints"
     id = Column(Integer, primary_key=True, index=True)
     case_id = Column(Integer, ForeignKey("cases.id"), index=True)
     complaint_id = Column(Integer, ForeignKey("complaints.id"), index=True)
-    linked_at = Column(DateTime, default=datetime.datetime.utcnow)
+    linked_at = Column(DateTime(timezone=True), default=utcnow)
 
 class Wallet(Base):
     __tablename__ = "wallets"
     id = Column(Integer, primary_key=True, index=True)
     address = Column(String(255), index=True, nullable=False)
     chain = Column(String(50), index=True, nullable=False)
-    first_seen = Column(DateTime, nullable=True)
-    last_seen = Column(DateTime, nullable=True)
+    first_seen = Column(DateTime(timezone=True), nullable=True)
+    last_seen = Column(DateTime(timezone=True), nullable=True)
     balance_usd = Column(Float, default=0.0)
     total_received_usd = Column(Float, default=0.0)
     total_sent_usd = Column(Float, default=0.0)
@@ -116,7 +118,7 @@ class Wallet(Base):
     risk_level = Column(String(50), default="Low")  # Low, Medium, High, Critical
     category = Column(String(100), default="Unknown")  # Mule, Collector, Intermediary, Peel, VASP Deposit, Mixer
     is_monitored = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class Transfer(Base):
     __tablename__ = "transfers"
@@ -124,7 +126,7 @@ class Transfer(Base):
     chain = Column(String(50), index=True, nullable=False)
     tx_hash = Column(String(255), index=True, nullable=False)
     block_number = Column(Integer, default=0)
-    timestamp = Column(DateTime, nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
     from_address = Column(String(255), index=True, nullable=False)
     to_address = Column(String(255), index=True, nullable=False)
     token = Column(String(50), default="USDT")
@@ -133,7 +135,7 @@ class Transfer(Base):
     is_contract_call = Column(Boolean, default=False)
     method_name = Column(String(100), nullable=True)
     log_index = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (
         Index("ix_transfers_chain_from_ts", "chain", "from_address", "timestamp"),
@@ -153,15 +155,15 @@ class Label(Base):
     weight_tier = Column(String(50), default="unverified_official")
     wallet_type = Column(String(50), default="unknown")  # hot, cold, unknown, deposit
     raw_wallet_type = Column(String(255), nullable=True)
-    valid_from = Column(DateTime, nullable=True)
-    valid_to = Column(DateTime, nullable=True)
+    valid_from = Column(DateTime(timezone=True), nullable=True)
+    valid_to = Column(DateTime(timezone=True), nullable=True)
     superseded_by = Column(String(255), nullable=True)
     record_status = Column(String(50), default="active")  # active, pending, revoked, inactive
     snapshot_date = Column(String(100), nullable=True)
     confidence = Column(Float, default=0.90)  # 0.0 to 1.0
-    verified_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=True)
-    fetched_at = Column(DateTime, default=datetime.datetime.utcnow)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    verified_at = Column(DateTime(timezone=True), default=utcnow, nullable=True)
+    fetched_at = Column(DateTime(timezone=True), default=utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
     __table_args__ = (
         Index("ix_labels_chain_address", "chain", "address"),
@@ -192,7 +194,7 @@ class Entity(Base):
     nodal_officer_email = Column(String(255), nullable=True)
     nodal_officer_phone = Column(String(100), nullable=True)
     source = Column(String(255), default="")
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class EntityAddress(Base):
     __tablename__ = "entity_addresses"
@@ -213,7 +215,7 @@ class Cluster(Base):
     primary_entity = Column(String(255), default="Suspect Syndicate")
     cluster_type = Column(String(100), default="Common Sweep")
     member_count = Column(Integer, default=1)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class ClusterMember(Base):
     __tablename__ = "cluster_members"
@@ -241,8 +243,8 @@ class TraceJob(Base):
     retry_count = Column(Integer, default=0)
     max_retries = Column(Integer, default=3)
     error_message = Column(Text, nullable=True)
-    started_at = Column(DateTime, default=datetime.datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), default=utcnow)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     elapsed_seconds = Column(Float, default=0.0)
 
 class TraceSnapshot(Base):
@@ -251,7 +253,7 @@ class TraceSnapshot(Base):
     case_id = Column(Integer, ForeignKey("cases.id"), index=True)
     snapshot_json = Column(Text, nullable=False)
     sha256_hash = Column(String(64), nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class GraphNode(Base):
     __tablename__ = "graph_nodes"
@@ -276,7 +278,7 @@ class GraphEdge(Base):
     amount = Column(Float, default=0.0)
     amount_usd = Column(Float, default=0.0)
     token = Column(String(50), default="USDT")
-    timestamp = Column(DateTime, nullable=False)
+    timestamp = Column(DateTime(timezone=True), nullable=False)
     is_cross_chain = Column(Boolean, default=False)
     confidence = Column(Float, default=1.0)
 
@@ -289,7 +291,7 @@ class Attribution(Base):
     deposit_address = Column(String(255), nullable=False)
     tx_hash = Column(String(255), nullable=False)
     amount = Column(Float, default=0.0)
-    timestamp = Column(DateTime, nullable=False)
+    timestamp = Column(DateTime(timezone=True), nullable=False)
     hops_from_suspect = Column(Integer, default=1)
     confidence_score = Column(Float, default=90.0)
     evidence_breakdown = Column(Text, default="{}")  # JSON
@@ -318,7 +320,7 @@ class CrossChainBridgeEvent(Base):
     amount = Column(Float, default=0.0)
     token = Column(String(50), default="USDT")
     confidence = Column(Float, default=0.88)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp = Column(DateTime(timezone=True), default=utcnow)
 
 class MixerEvent(Base):
     __tablename__ = "mixer_events"
@@ -329,7 +331,7 @@ class MixerEvent(Base):
     deposit_address = Column(String(255), nullable=False)
     deposit_tx_hash = Column(String(255), nullable=False)
     amount_usd = Column(Float, default=0.0)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp = Column(DateTime(timezone=True), default=utcnow)
     candidates = Column(Text, default="[]")  # JSON list of candidate withdrawals with probabilities
 
 class TypologyMatch(Base):
@@ -366,8 +368,8 @@ class Watchlist(Base):
     alert_on_vasp = Column(Boolean, default=True)
     alert_on_mixer = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
-    last_checked_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class Alert(Base):
     __tablename__ = "alerts"
@@ -386,8 +388,8 @@ class Alert(Base):
     is_acknowledged = Column(Boolean, default=False)
     acknowledged_by = Column(String(255), nullable=True)
     resolved_by = Column(String(255), nullable=True)
-    resolved_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class SystemCounter(Base):
     __tablename__ = "system_counters"
@@ -396,28 +398,43 @@ class SystemCounter(Base):
     prefix = Column(String(20), default="")
     year = Column(Integer, default=2026)
 
+_counter_lock = threading.Lock()
+
 def get_next_sequence_number(db: Session, counter_name: str, prefix: str = None) -> str:
     """Thread-safe locked sequence counter for case, complaint, and freeze numbers."""
-    try:
-        counter = db.query(SystemCounter).filter(SystemCounter.name == counter_name).with_for_update().first()
-    except Exception:
-        # SQLite fallback if SELECT FOR UPDATE not supported
-        counter = db.query(SystemCounter).filter(SystemCounter.name == counter_name).first()
+    with _counter_lock:
+        bind = db.get_bind()
+        if bind and "sqlite" in getattr(bind.dialect, "name", ""):
+            try:
+                db.execute(text("BEGIN IMMEDIATE"))
+            except Exception:
+                pass
 
-    if not counter:
-        counter = SystemCounter(
-            name=counter_name,
-            current_value=1000,
-            prefix=prefix or counter_name.upper(),
-            year=2026
-        )
-        db.add(counter)
+        try:
+            counter = db.query(SystemCounter).filter(SystemCounter.name == counter_name).with_for_update().first()
+        except Exception:
+            # SQLite fallback if SELECT FOR UPDATE not supported
+            counter = db.query(SystemCounter).filter(SystemCounter.name == counter_name).first()
+
+        if not counter:
+            try:
+                counter = SystemCounter(
+                    name=counter_name,
+                    current_value=1000,
+                    prefix=prefix or counter_name.upper(),
+                    year=utcnow().year
+                )
+                db.add(counter)
+                db.flush()
+            except Exception:
+                db.rollback()
+                counter = db.query(SystemCounter).filter(SystemCounter.name == counter_name).first()
+
+        counter.current_value += 1
+        val = counter.current_value
+        pref = prefix or counter.prefix or counter_name.upper()
         db.flush()
-
-    counter.current_value += 1
-    val = counter.current_value
-    pref = prefix or counter.prefix or counter_name.upper()
-    return f"{pref}-{counter.year}-{val:06d}"
+        return f"{pref}-{counter.year}-{val:06d}"
 
 class FreezeRequest(Base):
     __tablename__ = "freeze_requests"
@@ -457,13 +474,13 @@ class FreezeRequest(Base):
 
     created_by = Column(String(255), default="system", nullable=False)
     approved_by = Column(String(255), nullable=True)
-    approved_at = Column(DateTime, nullable=True)
-    sent_at = Column(DateTime, nullable=True)
-    acknowledged_at = Column(DateTime, nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
     frozen_amount_usd = Column(Float, default=0.0)
     pdf_path = Column(String(500), nullable=True)
     notes = Column(EncryptedText, default="")
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class CaseTask(Base):
     __tablename__ = "case_tasks"
@@ -474,9 +491,9 @@ class CaseTask(Base):
     owner = Column(String(255), nullable=False)
     is_due = Column(Boolean, default=True)
     is_completed = Column(Boolean, default=False)
-    completion_date = Column(DateTime, nullable=True)
+    completion_date = Column(DateTime(timezone=True), nullable=True)
     magistrate_reference = Column(String(128), nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class DigitalEvidenceCertificate(Base):
     __tablename__ = "digital_evidence_certificates"
@@ -487,7 +504,7 @@ class DigitalEvidenceCertificate(Base):
     generated_by = Column(String(255), nullable=False)
     pdf_path = Column(String(500), nullable=False)
     is_court_ready = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 class PIIAccessLog(Base):
 
@@ -498,7 +515,7 @@ class PIIAccessLog(Base):
     record_id = Column(String(100), nullable=False)
     fields_viewed = Column(Text, nullable=False)
     reason = Column(Text, nullable=False)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class Report(Base):
@@ -510,7 +527,7 @@ class Report(Base):
     sha256_hash = Column(String(64), nullable=False, index=True)
     snapshot_sha256 = Column(String(64), nullable=False)
     generated_by = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class CaseNote(Base):
     __tablename__ = "case_notes"
@@ -518,7 +535,7 @@ class CaseNote(Base):
     case_id = Column(Integer, ForeignKey("cases.id"), index=True)
     author_email = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class Webhook(Base):
     __tablename__ = "webhooks"
@@ -528,7 +545,7 @@ class Webhook(Base):
     events = Column(Text, default='["trace_complete", "vasp_found", "freeze_alert"]')  # JSON list
     is_active = Column(Boolean, default=True)
     secret = Column(String(255), nullable=False)  # Stored hashed secret
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class WebhookDelivery(Base):
     __tablename__ = "webhook_deliveries"
@@ -541,7 +558,7 @@ class WebhookDelivery(Base):
     latency_ms = Column(Integer, default=0)
     success = Column(Boolean, default=False)
     attempt_count = Column(Integer, default=1)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class ApiKey(Base):
     __tablename__ = "api_keys"
@@ -553,8 +570,8 @@ class ApiKey(Base):
     scopes = Column(String(255), default="ingest:write")  # comma-separated scopes
     role = Column(String(50), default="investigator")
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
 
 class OutboxMessage(Base):
     __tablename__ = "outbox_messages"
@@ -566,15 +583,15 @@ class OutboxMessage(Base):
     status = Column(String(50), default="pending")  # pending, sent, failed
     retry_count = Column(Integer, default=0)
     max_retries = Column(Integer, default=3)
-    next_retry_at = Column(DateTime, default=datetime.datetime.utcnow)
+    next_retry_at = Column(DateTime(timezone=True), default=utcnow)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     user_email = Column(String(255), nullable=False)
     action = Column(String(100), nullable=False)
     entity_type = Column(String(100), nullable=False)
@@ -590,7 +607,7 @@ class AuditCheckpoint(Base):
     last_audit_id = Column(Integer, nullable=False)
     last_entry_hash = Column(String(64), nullable=False)
     checkpoint_signature = Column(String(128), nullable=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 class AppSetting(Base):
     __tablename__ = "app_settings"

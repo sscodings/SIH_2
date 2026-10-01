@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
+import { getApiBaseUrl } from '../lib/config';
 import { useAppStore } from '../stores/useAppStore';
 
 export const Verify: React.FC = () => {
@@ -45,7 +46,7 @@ export const Verify: React.FC = () => {
 
     try {
       setLoading(true);
-      const res = await fetch('http://localhost:8000/api/v1/verify/upload', {
+      const res = await fetch(`${getApiBaseUrl()}/verify/upload`, {
         method: 'POST',
         body: formData
       });

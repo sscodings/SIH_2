@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Label
 from app.labels.base import LabelRecord
 from app.core.addresses import normalize
+from app.core.time import utcnow
 
 logger = logging.getLogger("chainnetra.labels.service")
 
@@ -70,8 +71,8 @@ class LabelService:
                     snapshot_date=r.snapshot_date,
                     confidence=LabelService.get_tier_weight(r.weight_tier),
                     verified_at=r.verified_at,
-                    fetched_at=r.fetched_at or datetime.utcnow(),
-                    created_at=datetime.utcnow()
+                    fetched_at=r.fetched_at or utcnow(),
+                    created_at=utcnow()
                 )
                 db.add(lbl)
                 added += 1

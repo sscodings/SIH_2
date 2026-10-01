@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../stores/useAppStore';
 import { getAccessToken } from '../lib/api';
+import { getWebSocketUrl } from '../lib/config';
 
 export function useWebSocket(topic: string = 'inbox', onEvent?: (event: string, data: any) => void) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -16,7 +17,7 @@ export function useWebSocket(topic: string = 'inbox', onEvent?: (event: string, 
     const connect = () => {
       try {
         const token = getAccessToken();
-        const baseWsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/events';
+        const baseWsUrl = getWebSocketUrl();
         const urlWithToken = token ? `${baseWsUrl}?token=${encodeURIComponent(token)}` : baseWsUrl;
 
         const ws = new WebSocket(urlWithToken);

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
+import { getApiBaseUrl } from '../lib/config';
 import { useAppStore } from '../stores/useAppStore';
 
 export const Integrations: React.FC = () => {
@@ -60,7 +61,7 @@ export const Integrations: React.FC = () => {
     }
   };
 
-  const curlExample = `curl -X POST "http://localhost:8000/api/v1/ingest/ncrp" \\
+  const curlExample = `curl -X POST "${window.location.origin}${getApiBaseUrl()}/ingest/ncrp" \\
   -H "Content-Type: application/json" \\
   -d '{
     "victim_name": "Suresh Gupta",
@@ -87,7 +88,7 @@ export const Integrations: React.FC = () => {
         </div>
 
         <a
-          href="http://localhost:8000/docs"
+          href="/docs"
           target="_blank"
           rel="noreferrer"
           className="px-3.5 py-2 rounded-lg bg-raised hover:bg-hairline border border-hairline text-xs font-semibold text-text-primary transition-colors flex items-center gap-1.5"

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Complaint, ComplaintWallet, Case, CaseComplaint, Label, Alert
 from app.core.config import settings
+from app.core.time import utcnow
 from app.core.addresses import validate_address, validate_tx_hash, normalize
 from app.labels.fiu import FiuVaspService
 
@@ -233,7 +234,7 @@ class ComplaintIngestionPipeline:
             amount_lost_usd=amount_lost_usd,
             amount_unknown=amount_unknown,
             incident_at=incident_at,
-            reported_at=datetime.utcnow(),
+            reported_at=utcnow(),
             txn_hash=valid_tx_hash,
             claimed_vasp_hint=claimed_vasp,
             linked_complaint_ids=json.dumps(linked_ids),
@@ -256,7 +257,7 @@ class ComplaintIngestionPipeline:
             chain=chain_norm,
             normalized_address=norm_address,
             is_primary=True,
-            created_at=datetime.utcnow()
+            created_at=utcnow()
         )
         db.add(cw)
 

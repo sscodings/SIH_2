@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "check:hosts": "python ../scripts/check_no_hardcoded_hosts.py",
     "preview": "vite preview"
   },
   "dependencies": {

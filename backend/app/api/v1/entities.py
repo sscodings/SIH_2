@@ -10,6 +10,7 @@ from app.db.models import Entity, EntityAddress, Label, LabelSource, User
 from app.core.security import require_user, require_role
 from app.core.audit import log_audit_action
 from app.core.validators import validate_crypto_address
+from app.core.time import utcnow
 
 router = APIRouter(prefix="", tags=["Entities & Labels"])
 
@@ -132,7 +133,7 @@ def approve_label(
 
     label.record_status = "active"
     label.weight_tier = "analyst_approved"
-    label.verified_at = datetime.utcnow()
+    label.verified_at = utcnow()
     db.commit()
     db.refresh(label)
 

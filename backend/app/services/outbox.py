@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
+from app.core.time import utcnow
 import httpx
 from sqlalchemy.orm import Session
 
@@ -25,7 +26,7 @@ def enqueue_outbox(
         status="pending",
         retry_count=0,
         max_retries=3,
-        next_retry_at=datetime.utcnow()
+        next_retry_at=utcnow()
     )
     db.add(msg)
     db.commit()
@@ -34,7 +35,7 @@ def enqueue_outbox(
 
 async def process_outbox_batch(db: Session, max_items: int = 20) -> List[Dict[str, Any]]:
     """Processes pending or retry-ready outbox messages."""
-    now = datetime.utcnow()
+    now = utcnow()
     messages = db.query(OutboxMessage).filter(
         OutboxMessage.status.in_(["pending", "retry"]),
         OutboxMessage.next_retry_at <= now
@@ -51,7 +52,7 @@ async def process_outbox_batch(db: Session, max_items: int = 20) -> List[Dict[st
                 resp = await client.post(msg.destination_url, json=payload, headers=headers)
                 if 200 <= resp.status_code < 300:
                     msg.status = "sent"
-                    msg.sent_at = datetime.utcnow()
+                    msg.sent_at = utcnow()
                     results.append({"id": msg.id, "status": "sent", "code": resp.status_code})
                 else:
                     msg.retry_count += 1
@@ -61,7 +62,7 @@ async def process_outbox_batch(db: Session, max_items: int = 20) -> List[Dict[st
                     else:
                         msg.status = "retry"
                         delay_seconds = (2 ** msg.retry_count) * 5
-                        msg.next_retry_at = datetime.utcnow() + timedelta(seconds=delay_seconds)
+                        msg.next_retry_at = utcnow() + timedelta(seconds=delay_seconds)
                     results.append({"id": msg.id, "status": msg.status, "code": resp.status_code})
             except Exception as exc:
                 msg.retry_count += 1
@@ -71,7 +72,7 @@ async def process_outbox_batch(db: Session, max_items: int = 20) -> List[Dict[st
                 else:
                     msg.status = "retry"
                     delay_seconds = (2 ** msg.retry_count) * 5
-                    msg.next_retry_at = datetime.utcnow() + timedelta(seconds=delay_seconds)
+                    msg.next_retry_at = utcnow() + timedelta(seconds=delay_seconds)
                 results.append({"id": msg.id, "status": msg.status, "error": str(exc)})
     
     db.commit()
@@ -99,5 +100,5 @@ def generate_sahyog_notice(complaint: Complaint, reason: str = "Takedown notice 
         "amount_lost_inr": complaint.amount_lost_inr,
         "incident_at": complaint.incident_at.isoformat() if complaint.incident_at else None,
         "reason": reason,
-        "exported_at": datetime.utcnow().isoformat()
+        "exported_at": utcnow().isoformat()
     }

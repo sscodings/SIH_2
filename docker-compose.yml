@@ -51,7 +51,9 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - USD_INR=${USD_INR:-83.50}
     volumes:
-      - app_data:/app/data
+      - ./data:/data
+      - evidence_data:/data/evidence
+      - label_cache:/data/labels
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,7 +83,9 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - USD_INR=${USD_INR:-83.50}
     volumes:
-      - app_data:/app/data
+      - ./data:/data
+      - evidence_data:/data/evidence
+      - label_cache:/data/labels
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,4 +107,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  app_data:
+  evidence_data:
+  label_cache:

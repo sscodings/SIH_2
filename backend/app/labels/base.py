@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, List
 from abc import ABC, abstractmethod
+from app.core.time import utcnow
 
 @dataclass
 class LabelRecord:
@@ -21,7 +22,7 @@ class LabelRecord:
     record_status: str = "active"  # active, pending, revoked, inactive
     snapshot_date: Optional[str] = None
     verified_at: Optional[datetime] = None
-    fetched_at: Optional[datetime] = field(default_factory=datetime.utcnow)
+    fetched_at: Optional[datetime] = field(default_factory=utcnow)
 
 class LabelSource(ABC):
     name: str = "base"

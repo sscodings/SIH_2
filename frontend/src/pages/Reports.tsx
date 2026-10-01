@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
+import { getApiBaseUrl } from '../lib/config';
 import { useAppStore } from '../stores/useAppStore';
 
 export const Reports: React.FC = () => {
@@ -134,7 +135,7 @@ export const Reports: React.FC = () => {
                   <td className="p-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <a
-                        href={`http://localhost:8000/api/v1/reports/${r.id}/download`}
+                        href={`${getApiBaseUrl()}/reports/${r.id}/download`}
                         target="_blank"
                         rel="noreferrer"
                         className="px-2.5 py-1 rounded bg-raised hover:bg-hairline border border-hairline text-amber font-semibold text-xs inline-flex items-center gap-1"

@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.db.models import AuditLog, AuditCheckpoint
 from app.core.config import settings
+from app.core.time import utcnow, ensure_utc
 
 logger = logging.getLogger("chainnetra.audit")
 
@@ -17,10 +18,12 @@ def get_audit_hmac_key() -> str:
     return settings.AUDIT_HMAC_KEY or "chainnetra_audit_fallback_key_2026"
 
 def format_audit_timestamp(ts: Any) -> str:
+    """Formats timestamp into ISO string with UTC timezone offset (+00:00)."""
     if isinstance(ts, datetime):
-        return ts.strftime("%Y-%m-%dT%H:%M:%S")
+        dt = ensure_utc(ts)
+        return dt.isoformat()
     if isinstance(ts, str):
-        return ts[:19].replace(" ", "T")
+        return ts
     return str(ts)
 
 def compute_entry_hash(
@@ -69,7 +72,7 @@ def create_audit_checkpoint(db: Session, last_audit_id: int, last_entry_hash: st
         last_audit_id=last_audit_id,
         last_entry_hash=last_entry_hash,
         checkpoint_signature=checkpoint_sig,
-        created_at=datetime.now(timezone.utc)
+        created_at=utcnow()
     )
     db.add(cp)
     db.commit()
@@ -97,7 +100,7 @@ def log_audit_action(
     last_log = db.query(AuditLog).order_by(AuditLog.id.desc()).first()
     prev_hash = last_log.entry_hash if last_log and last_log.entry_hash else GENESIS_HASH
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = utcnow()
     ts_str = format_audit_timestamp(now_utc)
     details_str = json.dumps(details or {}, sort_keys=True)
 
@@ -167,12 +170,38 @@ def verify_audit_chain(db: Session) -> dict:
         )
 
         if recomputed_hash != entry.entry_hash:
-            return {
-                "valid": False,
-                "broken_at_id": entry.id,
-                "broken_at_index": idx,
-                "reason": f"Tampered entry hash at entry {entry.id}. Recomputed {recomputed_hash} != Recorded {entry.entry_hash}"
-            }
+            # Backward-compatibility fallback for pre-F5 chains
+            if isinstance(entry.timestamp, datetime):
+                legacy_candidates = [
+                    entry.timestamp.strftime("%Y-%m-%dT%H:%M:%S"),
+                    ensure_utc(entry.timestamp).replace(microsecond=0).isoformat(),
+                ]
+            else:
+                legacy_candidates = [str(entry.timestamp)[:19].replace(" ", "T")]
+
+            matched = False
+            for cand in legacy_candidates:
+                alt_hash = compute_entry_hash(
+                    prev_hash=entry.prev_hash,
+                    timestamp_str=cand,
+                    user_email=entry.user_email,
+                    action=entry.action,
+                    entity_type=entry.entity_type,
+                    entity_id=entry.entity_id or "",
+                    details_json=entry.details or "{}"
+                )
+                if alt_hash == entry.entry_hash:
+                    recomputed_hash = alt_hash
+                    matched = True
+                    break
+
+            if not matched:
+                return {
+                    "valid": False,
+                    "broken_at_id": entry.id,
+                    "broken_at_index": idx,
+                    "reason": f"Tampered entry hash at entry {entry.id}. Recomputed {recomputed_hash} != Recorded {entry.entry_hash}"
+                }
 
         # 3. Verify HMAC Signature
         if entry.signature:

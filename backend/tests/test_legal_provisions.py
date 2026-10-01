@@ -1,4 +1,5 @@
 import os
+import sys
 import pytest
 import tempfile
 import subprocess
@@ -140,17 +141,19 @@ def test_grep_guard_execution_and_planted_failure():
     """
     Test 7: The grep guard passes on allowlisted paths and fails on a planted "420 IPC" string.
     """
-    script_path = Path("scripts/check_legal_strings.py").resolve()
-    assert script_path.exists(), "check_legal_strings.py must exist"
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    script_path = repo_root / "scripts" / "check_legal_strings.py"
+    assert script_path.exists(), f"check_legal_strings.py must exist at {script_path}"
 
     # Create temporary planted file inside backend/app
-    temp_target = Path("backend/app/temp_violation_test.py").resolve()
+    temp_target = repo_root / "backend" / "app" / "temp_violation_test.py"
     try:
         temp_target.write_text("# planted forbidden string: 420 IPC\n", encoding="utf-8")
         result = subprocess.run(
-            ["python", str(script_path)],
+            [sys.executable, str(script_path)],
             capture_output=True,
-            text=True
+            text=True,
+            cwd=str(repo_root)
         )
         assert result.returncode != 0, "Grep guard must fail when planted '420 IPC' is present"
         assert "temp_violation_test.py" in result.stderr or "temp_violation_test.py" in result.stdout
@@ -165,9 +168,8 @@ def test_primary_source_pdf_verification():
     (s.39, s.57, s.61, s.62, s.63, s.170), so a typo in the yaml cannot pass.
     Skip if PDF is absent.
     """
-    pdf_path = Path("docs/research/250882.pdf")
-    if not pdf_path.exists():
-        pdf_path = Path("backend/docs/research/250882.pdf")
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    pdf_path = repo_root / "docs" / "research" / "250882.pdf"
     if not pdf_path.exists():
         pytest.skip("docs/research/250882.pdf is absent, skipping primary source check")
 

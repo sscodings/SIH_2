@@ -8,6 +8,7 @@ from app.db.database import get_db
 from app.db.models import Alert, User
 from app.core.security import require_user
 from app.core.audit import log_audit_action
+from app.core.time import utcnow
 from app.worker import MONITOR_METRICS
 
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
@@ -97,7 +98,7 @@ def resolve_alert(
         raise HTTPException(status_code=404, detail="Alert not found")
     alert.status = "resolved"
     alert.resolved_by = current_user.email
-    alert.resolved_at = datetime.utcnow()
+    alert.resolved_at = utcnow()
     db.commit()
 
     log_audit_action(
@@ -119,5 +120,5 @@ def get_monitor_status(
     return {
         "status": "healthy",
         "metrics": MONITOR_METRICS,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": utcnow().isoformat()
     }

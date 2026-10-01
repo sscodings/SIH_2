@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any
 
 from app.labels.base import LabelSource, LabelRecord
 from app.core.addresses import normalize, validate_address
+from app.core.time import utcnow
 
 logger = logging.getLogger("chainnetra.labels.exchange_csv")
 
@@ -136,7 +137,7 @@ class ExchangeCsvLabelSource(LabelSource):
                     record_status=record_status,
                     snapshot_date=snapshot_date_str,
                     verified_at=verified_at,
-                    fetched_at=datetime.utcnow()
+                    fetched_at=utcnow()
                 )
                 records.append(record)
 

@@ -5,7 +5,6 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react)](https://react.dev/)
 [![Cytoscape](https://img.shields.io/badge/Cytoscape.js-3.28-EA580C?style=flat-square)](https://js.cytoscape.org/)
 [![Scikit-Learn](https://img.shields.io/badge/Scikit--Learn-1.4-F7931E?style=flat-square&logo=scikit-learn)](https://scikit-learn.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
 > **One-Line Mission**: Turn a days-long expert tracing task into a minutes-long automated one so proceeds of cybercrime can be frozen at exchanges before they disappear.
 
@@ -67,47 +66,34 @@ ChainNetra ("Netra" = Eye) is an automated blockchain forensics command room tai
 - Node.js 18+ & npm
 - Git
 
-### Option A: Single-Command Bootstrap (Windows / Linux / macOS)
+### Option A: Cross-Platform Bootstrap (Windows / Linux / macOS)
+
+Using the cross-platform orchestrator:
 
 ```bash
-# Clone the repository
-git clone https://github.com/sscodings/SIH_2.git
-cd SIH_2
+# 1. Setup virtual environment and dependencies
+python scripts/dev.py setup
+# Or on Linux/macOS: make setup
+# Or on Windows PowerShell: .\scripts\dev.ps1 setup
 
-# Setup backend
-cd backend
-python -m venv venv
-# Windows:
-.\venv\Scripts\pip install -r requirements.txt
-# Linux/macOS: source venv/bin/activate && pip install -r requirements.txt
+# 2. Seed database
+python scripts/dev.py seed
+# Or: make seed
 
-# Seed deterministic dataset & train ML models
-python -m app.db.seed
-python -m app.ml.train
-
-# Start backend server (Port 8000)
-# Windows:
-.\venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-# Linux/macOS:
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+# 3. Start backend & frontend together
+python scripts/dev.py dev
+# Or: make dev
+# Or: .\scripts\dev.ps1 dev
 ```
 
-In a second terminal:
-```bash
-# Setup and start frontend (Port 5173)
-cd frontend
-npm install
-npm run dev
-```
-
-Open **`http://127.0.0.1:5173`** in your browser.
+Open **`http://localhost:5173`** in your browser.
 
 ---
 
 ### Option B: Docker Compose
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 - Frontend UI: `http://localhost:5173`
 - Backend API Docs: `http://localhost:8000/docs`
@@ -123,13 +109,22 @@ In Demo Mode, pre-seeded accounts are provided on the login screen:
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing & Hygiene Checks
 
-Run backend engine tests covering taint models, confidence formulas, address validators, audit log integrity, and end-to-end First-VASP-Hit tracing:
+Run complete test suite, legal provisions integrity check, and frontend host hygiene guard:
 
 ```bash
-cd backend
-.\venv\Scripts\pytest tests/
+# Run pytest test suite
+python scripts/dev.py test
+# Or: make test
+
+# Run all guards (lint, legal strings, no hardcoded hosts)
+python scripts/dev.py lint
+# Or: make lint
+
+# Complete check (lint + test)
+python scripts/dev.py check
+# Or: make check
 ```
 
 ---
@@ -143,4 +138,4 @@ cd backend
 ---
 
 ## 📄 License
-This project is licensed under the MIT License. Developed for Smart India Hackathon (SIH).
+License decision pending owner confirmation (neither `license` nor `license_holder` specified in `docs/research/decisions.md`). Developed for Smart India Hackathon (SIH).
