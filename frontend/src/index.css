@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-surface: #f8f9ff;
+    --bg-surface-low: #eef4ff;
+    --bg-surface-lowest: #ffffff;
+    --color-primary: #01549b;
+    --color-primary-container: #2f6db5;
+    --color-secondary: #006b5f;
+    --color-tertiary: #33567f;
+    --color-error: #ba1a1a;
+    --border-stroke: #D9E1EC;
+    --text-primary: #0a1d2e;
+    --text-variant: #424751;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #eef4ff;
+    color: #0a1d2e;
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    overscroll-behavior: none;
+  }
+}
+
+/* Material Symbols Outlined Icon helper */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle, dignified scrollbar for LE forensic review */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #eef4ff;
+}
+::-webkit-scrollbar-thumb {
+  background: #cadcf4;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #727782;
+}
+
+/* Evidentiary Dossier Paper & Card shadow */
+.evidentiary-card {
+  background: #ffffff;
+  border: 1px solid #D9E1EC;
+  box-shadow: 0 2px 8px rgba(38, 74, 115, 0.04), 0 1px 2px rgba(38, 74, 115, 0.02);
+  border-radius: 12px;
+}
+
+/* Soft grid pattern for graph stage */
+.forensic-grid {
+  background-size: 24px 24px;
+  background-image: 
+    linear-gradient(to right, rgba(202, 220, 244, 0.4) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(202, 220, 244, 0.4) 1px, transparent 1px);
+}
+
+/* Print Styles for Court Admissible Evidence */
+@media print {
+  aside, header, .no-print {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}

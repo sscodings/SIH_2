@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: chainnetra-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chainnetra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chainnetra_secure_password_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-chainnetra}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chainnetra} -d ${POSTGRES_DB:-chainnetra}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: chainnetra-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chainnetra-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - CHAINNETRA_MODE=${CHAINNETRA_MODE:-DEMO}
+      - SECRET_KEY=${SECRET_KEY:-netra-super-secret-jwt-forensic-key-2026-sih-prototype}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-webhook-secret-key-16bytes}
+      - AUDIT_HMAC_KEY=${AUDIT_HMAC_KEY:-audit-hmac-key-32bytes-secure}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://chainnetra:chainnetra_secure_password_2026@postgres:5432/chainnetra}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - USD_INR=${USD_INR:-83.50}
+    volumes:
+      - ./data:/data
+      - evidence_data:/data/evidence
+      - label_cache:/data/labels
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chainnetra-worker
+    command: ["arq", "app.worker.WorkerSettings"]
+    env_file:
+      - .env
+    environment:
+      - CHAINNETRA_MODE=${CHAINNETRA_MODE:-DEMO}
+      - SECRET_KEY=${SECRET_KEY:-netra-super-secret-jwt-forensic-key-2026-sih-prototype}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-webhook-secret-key-16bytes}
+      - AUDIT_HMAC_KEY=${AUDIT_HMAC_KEY:-audit-hmac-key-32bytes-secure}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://chainnetra:chainnetra_secure_password_2026@postgres:5432/chainnetra}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - USD_INR=${USD_INR:-83.50}
+    volumes:
+      - ./data:/data
+      - evidence_data:/data/evidence
+      - label_cache:/data/labels
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: chainnetra-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  evidence_data:
+  label_cache:
